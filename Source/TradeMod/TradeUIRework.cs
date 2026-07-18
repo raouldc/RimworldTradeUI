@@ -1046,6 +1046,9 @@ namespace TradeUI
                         {
                             Rect rightArrowRect = new Rect(miniRect.x, rect.y, 30f, rect.height);
                             Rect leftArrowRect = new Rect(rightArrowRect.x + rightArrowRect.width, rect.y, 30f, rect.height);
+                            // Tooltips: trader's items are what you BUY. "<" adds, ">" removes.
+                            TooltipHandler.TipRegion(rightArrowRect, "Buy more of this item from the trader.\nRight-click: buy the maximum.");
+                            TooltipHandler.TipRegion(leftArrowRect, "Buy fewer of this item.\nRight-click: buy none.");
                             {
                                 if (canTradeRight)
                                 {
@@ -1109,6 +1112,9 @@ namespace TradeUI
                         {
                             Rect leftArrowRect = new Rect(miniRect.x + 55f + EDGE_MARGIN + 10, rect.y, 30f, rect.height);
                             Rect rightArrowRect = new Rect(leftArrowRect.xMax, rect.y, 30f, rect.height);
+                            // Tooltips: your colony's items are what you SELL. "<" adds, ">" removes.
+                            TooltipHandler.TipRegion(leftArrowRect, "Sell more of this item to the trader.\nRight-click: sell all.");
+                            TooltipHandler.TipRegion(rightArrowRect, "Sell fewer of this item.\nRight-click: sell none.");
 
                             if (canTradeLeft)
                             {
