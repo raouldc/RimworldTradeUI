@@ -450,12 +450,13 @@ namespace TradeUI
             public const float OWNED_AMOUNT_WIDTH = 75f;
             public const float ICON_INFO_WIDTH = 80f;   // icon (27) + info button + padding; name starts at x=80
             public const float NAME_MIN_WIDTH = 140f;    // minimum readable space reserved for the label
+            public const float BULK_WIDTH = 64f;         // UX-A: "All" + "$" bulk buttons (SP only)
 
             // Minimum content width a row needs so the right-anchored blocks always have room and the
             // name rect never collapses. extraIconWidth is measured live (see MyDrawTradableRow).
             public static float MinRowWidth()
             {
-                return ICON_INFO_WIDTH + NAME_MIN_WIDTH + OWNED_AMOUNT_WIDTH + COST_WIDTH + TRANSFER_WIDTH
+                return ICON_INFO_WIDTH + NAME_MIN_WIDTH + OWNED_AMOUNT_WIDTH + COST_WIDTH + TRANSFER_WIDTH + BULK_WIDTH
                     + TradeUIParameters.maxExtraIconWidth;
             }
 
@@ -493,6 +494,68 @@ namespace TradeUI
             {
                 Text.Anchor = anchor;
                 Widgets.Label(rect, label);
+            }
+
+            // UX-A: "All" sets the max transferable quantity (the reliable easy win). "$" tries to set
+            // the quantity that spends/earns as close to all available silver as possible.
+            static void DrawBulkButtons(Rect rect, Tradeable trad, bool isOurs)
+            {
+                float h = Mathf.Min(rect.height - 6f, 22f);
+                float y = rect.y + (rect.height - h) / 2f;
+                Rect allRect = new Rect(rect.x + 2f, y, 28f, h);
+                Rect maxRect = new Rect(allRect.xMax + 2f, y, 28f, h);
+
+                GameFont prevFont = Text.Font;
+                Text.Font = GameFont.Tiny;
+                if (Widgets.ButtonText(allRect, "All", true, true, true))
+                {
+                    trad.AdjustTo(trad.GetMaximumToTransfer());
+                    Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
+                }
+                TooltipHandler.TipRegion(allRect, new TipSignal("Sell/buy the maximum available quantity of this item."));
+
+                if (Widgets.ButtonText(maxRect, "$", true, true, true))
+                {
+                    AdjustToMaxMoney(trad, isOurs);
+                    Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
+                }
+                TooltipHandler.TipRegion(maxRect, new TipSignal("Set the quantity that spends (or earns) as close to all available silver as possible."));
+                Text.Font = prevFont;
+            }
+
+            // Per-unit price math (does NOT rely on GetMaximumToTransfer, which bounds by stock, not by
+            // affordability). Single-pass estimate: affordable units = available silver / unit price,
+            // clamped to available stock. Note: this uses the currency's current silver holdings and
+            // does not subtract silver already committed on other rows - see the test checklist.
+            static void AdjustToMaxMoney(Tradeable trad, bool isOurs)
+            {
+                int max = trad.GetMaximumToTransfer();
+                if (trad.IsCurrency)
+                {
+                    trad.AdjustTo(max);
+                    return;
+                }
+                Dialog_Trade dlg = Find.WindowStack.WindowOfType<Dialog_Trade>();
+                Tradeable currency = (dlg != null) ? dlg.cachedCurrencyTradeable : null;
+                if (currency == null)
+                {
+                    trad.AdjustTo(max);
+                    return;
+                }
+                TradeAction action = isOurs ? TradeAction.PlayerSells : TradeAction.PlayerBuys;
+                float unitPrice = trad.GetPriceFor(action);
+                if (unitPrice <= 0f)
+                {
+                    trad.AdjustTo(max);
+                    return;
+                }
+                // Buying spends the colony's silver; selling is bounded by the trader's silver.
+                int budget = isOurs ? currency.CountHeldBy(Transactor.Trader) : currency.CountHeldBy(Transactor.Colony);
+                int affordable = Mathf.FloorToInt(budget / unitPrice);
+                int stock = Mathf.Abs(max);
+                int target = Mathf.Min(affordable, stock);
+                // Preserve the transfer direction that GetMaximumToTransfer encodes.
+                trad.AdjustTo(max >= 0 ? target : -target);
             }
 
             static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance)
@@ -695,6 +758,7 @@ namespace TradeUI
 
                 // Change 2: column widths are now shared class constants (COST_WIDTH,
                 // TRANSFER_WIDTH, OWNED_AMOUNT_WIDTH) so headers and min-width calc stay in sync.
+                bool canBulk = false; // UX-A: only true on genuinely tradeable rows (has the arrows)
                 if (!trad.TraderWillTrade)
                 {
                     // Since no price will be shown, we will occupy more space
@@ -723,6 +787,7 @@ namespace TradeUI
                 }
                 else
                 {
+                    canBulk = true;
                     xPosition -= TRANSFER_WIDTH;
                     Rect rect5 = new Rect(xPosition, 0f, TRANSFER_WIDTH, mainRect.height);
                     // Drawing left/right arrows and transfer amount
@@ -736,6 +801,17 @@ namespace TradeUI
                         TradeUIParameters.Singleton.isDrawingColonyItems = false;
                     }
                     TransferableUIUtility.DoCountAdjustInterface(rect5, trad, index, trad.GetMinimumToTransfer(), trad.GetMaximumToTransfer(), flash, null, false);
+                }
+
+                // UX-A: bulk buttons, just left of the transfer arrows. Gated to SP (Dialog_Trade on
+                // the stack) - in MP the custom widget is replaced by the vanilla count widget and
+                // adding interactive controls here could let a non-negotiating player edit the deal.
+                // The AdjustTo path itself already syncs in MP the same way the arrows do.
+                if (canBulk && !trad.IsCurrency && Find.WindowStack.IsOpen<Dialog_Trade>())
+                {
+                    xPosition -= BULK_WIDTH;
+                    Rect bulkRect = new Rect(xPosition, 0f, BULK_WIDTH, mainRect.height);
+                    DrawBulkButtons(bulkRect, trad, isOurs);
                 }
 
                 int ownedAmount = trad.CountHeldBy(isOurs ? Transactor.Colony : Transactor.Trader);
