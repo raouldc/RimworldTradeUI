@@ -250,16 +250,30 @@ namespace TradeUI
                 }
             }
 
-            // UX-C: in-deal filter toggle at the far left of the button row. Display-only local state,
+            // "Show" filter dropdown at the far left of the button row. Opens a menu of display
+            // toggles (in-deal only, hide items the trader won't buy). Display-only local state,
             // so it is safe under MP (no deal mutation).
             Rect filterRect = new Rect(0f, buttonsRect.y, 150f, Dialog_Trade.OtherBottomButtonSize.y);
-            bool filterOn = TradeUIParameters.Singleton.filterInDealOnly;
-            if (Widgets.ButtonText(filterRect, filterOn ? "Showing: in deal" : "Show: all items", true, true, true))
+            bool inDealOnly = TradeUIParameters.Singleton.filterInDealOnly;
+            bool hideUnwilling = TradeUIParameters.Singleton.hideUnwillingToBuy;
+            string filterLabel = (inDealOnly || hideUnwilling) ? "Show: filtered" : "Show: all items";
+            if (Widgets.ButtonText(filterRect, filterLabel, true, true, true))
             {
-                TradeUIParameters.Singleton.filterInDealOnly = !filterOn;
+                List<FloatMenuOption> filterOptions = new List<FloatMenuOption>
+                {
+                    new FloatMenuOption((inDealOnly ? "✓ " : "     ") + "Only items in the deal", () =>
+                    {
+                        TradeUIParameters.Singleton.filterInDealOnly = !TradeUIParameters.Singleton.filterInDealOnly;
+                    }),
+                    new FloatMenuOption((hideUnwilling ? "✓ " : "     ") + "Hide items the trader won't buy", () =>
+                    {
+                        TradeUIParameters.Singleton.hideUnwillingToBuy = !TradeUIParameters.Singleton.hideUnwillingToBuy;
+                    }),
+                };
+                Find.WindowStack.Add(new FloatMenu(filterOptions));
                 Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
             }
-            TooltipHandler.TipRegion(filterRect, new TipSignal("Toggle showing only items currently in the deal."));
+            TooltipHandler.TipRegion(filterRect, new TipSignal("Filter which items are shown (in-deal only, hide items the trader won't buy)."));
 
             GUI.EndGroup();
 
@@ -643,14 +657,16 @@ namespace TradeUI
                 // UX-C: when the in-deal filter is on, only count rows that are part of the deal so
                 // the scroll height matches the (fewer) rows actually drawn.
                 bool filterInDeal = TradeUIParameters.Singleton.filterInDealOnly;
+                bool hideUnwilling = TradeUIParameters.Singleton.hideUnwillingToBuy;
                 float leftHeight = 6f;
                 float rightHeight = 6f;
                 foreach (var entry in ___cachedTradeables)
                 {
                     bool inDeal = !filterInDeal || entry.CountToTransfer != 0;
-                    if (inDeal && entry.thingsColony != null && entry.thingsColony.Count > 0)
+                    bool willing = !hideUnwilling || entry.TraderWillTrade;
+                    if (inDeal && willing && entry.thingsColony != null && entry.thingsColony.Count > 0)
                         leftHeight += 30f;
-                    if (inDeal && entry.thingsTrader != null && entry.thingsTrader.Count > 0)
+                    if (inDeal && willing && entry.thingsTrader != null && entry.thingsTrader.Count > 0)
                         rightHeight += 30f;
                 }
 
@@ -679,6 +695,9 @@ namespace TradeUI
                         continue;
                     // UX-C: skip rows not in the deal (without advancing num, so no blank gaps).
                     if (filterInDeal && ___cachedTradeables[i].CountToTransfer == 0)
+                        continue;
+                    // Skip items the trader won't buy when the hide checkbox is on.
+                    if (hideUnwilling && !___cachedTradeables[i].TraderWillTrade)
                         continue;
 
                     if (num > num2 && num < num3)

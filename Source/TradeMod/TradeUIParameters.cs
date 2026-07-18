@@ -37,5 +37,8 @@ namespace TradeUI
 
         // UX-C: when true, only rows already in the deal (CountToTransfer != 0) are shown.
         public bool filterInDealOnly = false;
+
+        // When true, hide rows the trader is not willing to trade (i.e. won't buy from the colony).
+        public bool hideUnwillingToBuy = false;
     }
 }
