@@ -30,14 +30,23 @@ are not trying to make it so here. Point the csproj `HintPath`/publicized assemb
 ## Change 1 — Resizable window (with persisted size)
 
 - Set `resizeable` in the existing `Harmony_DialogTrade_PostOpen`. **Note it is a `Prefix`, not a
-  postfix** (TradeUIRework.cs:1119-1126) — `__instance` is available, so
-  `__instance.resizeable = true;` there is fine. `Window.resizeable` draws/handles the resize
-  grip via `WindowResizer` without needing `draggable`.
+  postfix, and currently takes no args** (TradeUIRework.cs:1119-1126) — add a `Dialog_Trade
+  __instance` parameter, then `__instance.resizeable = true;`. `Window.resizeable` draws/handles
+  the resize grip via `WindowResizer` without needing `draggable`. (This Prefix does **not** fire
+  in MP — the MP inner dialog is never stack-opened — which is exactly why Change 4 needs its own
+  `TradingWindow` patch.)
 - **Do NOT add a `PreClose`/`PostClose` patch.** `Dialog_Trade` does not declare those — they're
   inherited from `Verse.Window`, so `AccessTools.Method(typeof(Dialog_Trade), "PreClose")`
   resolves to the base method and the patch would fire on **every window in the game**. Instead
   capture the size each frame from inside `MyDoWindowContents` (which already has `__instance`,
   line ~77): `TradeUIParameters.windowSize = __instance.windowRect.size;`.
+  - **Guard against zero.** Only write the static when the rect is real:
+    `if (__instance.windowRect.width > 1f && __instance.windowRect.height > 1f)`. In SP the inner
+    dialog is the stack window so `windowRect` is populated; but this same code path runs in MP
+    where `__instance` is the inner dialog created via `NewObjectNoCtor` and **never stack-added**,
+    so its `windowRect` stays `(0,0)`. Without the guard you'd overwrite the shared
+    `windowSize` static with zero the moment MP is used. In MP, capture size from the actual
+    `TradingWindow` instead (see Change 4).
 - Persist size across opens:
   - Add `public static Vector2 windowSize = Vector2.zero;` to `TradeUIParameters`.
   - In the `Harmony_DialogTrade_InitialSize` postfix (line ~1128), if `windowSize != zero` return
@@ -126,42 +135,68 @@ In the `Harmony_DialogTrade_FillMainRect.Prefix` (lines ~460-518):
 
 ## Change 4 — Multiplayer parity (required)
 
-The RimWorld Multiplayer mod (`rwmt.Multiplayer`) does not use `Dialog_Trade` — it opens its own
-`Multiplayer.Client.TradingWindow` wrapper, so none of the changes above reach an MP session
-unless mirrored onto that window. This is in scope for the 1.6 pass.
+The RimWorld Multiplayer mod (`rwmt.Multiplayer`) does not use `Dialog_Trade` on the window stack
+— it opens its own `Multiplayer.Client.TradingWindow : Window` and, inside its
+`DoWindowContents`, calls `dialog.DoWindowContents(inRect.AtZero())` on an inner `Dialog_Trade`
+created via `NewObjectNoCtor` (verified against `rwmt/Multiplayer` `Source/Client/Persistent/
+TradingUI.cs`). Two important consequences:
 
-- **Investigate the MP render path first.** The existing `DoCountAdjustInterfaceInternal` prefix
-  guards with `if (!Find.WindowStack.IsOpen<Dialog_Trade>()) return true;` (line ~670). Under MP,
-  `Dialog_Trade` is not the open window, so this guard makes the mod fall back to vanilla count
-  drawing — a sign the rework may be partially bypassed in MP today. Confirm whether
-  `TradingWindow` routes through `Dialog_Trade.FillMainRect` / `MyDrawTradableRow` (in which case
-  the column + horizontal-scroll fixes apply for free) or reimplements its own drawing (in which
-  case the fixes must be applied to that path, and the `IsOpen<Dialog_Trade>()` guard needs to
-  also accept the MP window).
-- **Resizable + size persistence:** add a `resizeable = true` patch against `TradingWindow`
-  (constructor/`PostOpen` equivalent) alongside the existing `PatchTradingWindowWidth`. Reuse the
-  same client-local `TradeUIParameters.windowSize`; do **not** sync it.
-- **Determinism boundary — the key simplification:** window size, scroll position, and any
-  column widths are display-only and stay local per client, so they need no MP sync and cannot
-  desync the game state. Only actions that mutate the *deal* (Phase 2 bulk/max buttons) must go
-  through MP's sync layer like the vanilla adjust paths; the fit fixes themselves do not.
-- Guard MP-specific patches so they no-op when Multiplayer isn't loaded (the existing
-  `PatchTradingWindowWidth.Prepare()` already checks for the `rwmt.Multiplayer` package — follow
-  that pattern via `[HarmonyPatch]` + `Prepare()`/`TargetMethod()` reflection so the build doesn't
-  hard-reference the MP assembly).
+- **Changes 2 (columns) and 3 (horizontal scroll) already reach MP for free.** Because
+  `TradingWindow` calls the inner `dialog.DoWindowContents`, the mod's `DoWindowContents` /
+  `FillMainRect` transpilers *do* run in MP. `TradingWindow` does **not** reimplement row drawing.
+  So Change 4 is smaller than it looks — no re-plumbing of the column/scroll code for MP.
+- **What Change 4 actually needs:**
+  1. **Resizable MP window + local size.** Patch the **`TradingWindow` constructor** (postfix
+     adding `resizeable = true`) — *not* `PostOpen`: `TradingWindow` doesn't override `PostOpen`,
+     so patching it would hit base `Verse.Window.PostOpen` and fire for every window (the same
+     trap called out in Change 1). Do this alongside the existing `PatchTradingWindowWidth`.
+  2. **Capture size from the right window.** The inner dialog's `windowRect` is `(0,0)` in MP
+     (never stack-added), so the Change 1 capture must, under MP, read
+     `Find.WindowStack.WindowOfType<TradingWindow>()?.windowRect` (reflection) instead of
+     `__instance.windowRect`. Combined with the zero-guard from Change 1, this stops MP from
+     zeroing the shared `windowSize` static.
+  3. **Leave the count-widget guard returning vanilla under MP.** Do **not** relax
+     `if (!Find.WindowStack.IsOpen<Dialog_Trade>()) return true;` (line ~670). MP disables count
+     controls for non-negotiating factions by pattern-matching vanilla `Widgets.ButtonText` /
+     `Widgets.TextFieldNumeric` labels; the mod's custom arrows use `DrawNormalButton` /
+     `DrawGreyButton`, which MP can't detect — relaxing the guard would let a **non-negotiating**
+     player edit the deal (session-ownership violation, though not a desync). Accepting the vanilla
+     count widget in the MP window is the safe default. (If you later want the custom widget in MP,
+     gate the interactive arrows on `MpTradeSession.current.NegotiatorFaction ==
+     Multiplayer.RealPlayerFaction` via reflection.)
+- **Determinism boundary — the key simplification:** window size, scroll position, and any column
+  widths are display-only local UI. MP hashes deal/tradeable state (`MpTradeDeal.tradeables`,
+  counts), not window geometry, so these need no MP sync and cannot desync. Verified: the fit
+  paths don't touch `TradeSession.deal`; the row draw's existing `AdjustBy/AdjustTo` +
+  `CountToTransferChanged` (lines ~481, 511, 612) already sync via MP's transferables marker set
+  in `MpTradeSession.SetTradeSession` — unchanged by the fit fixes.
+- **Gate all MP patches behind a load check.** Follow the existing `PatchTradingWindowWidth`
+  pattern: `[HarmonyPatch]` + `Prepare()` (checks the `rwmt.Multiplayer` package) +
+  `TargetMethod()` reflection, so the build never hard-references the MP assembly.
+- **Investigate these pre-existing MP behaviors while here (test with two clients):**
+  - *Gift-mode may not sync.* `MyDoWindowContents` sets `TradeSession.giftMode` + `deal.Reset()`
+    directly (lines ~188, 200-201). Vanilla MP routes gift-mode through a `[SyncMethod]` via a
+    transpiler on vanilla `Dialog_Trade.DoWindowContents` — but the mod's own transpiler deletes
+    that IL range (line ~65), so MP never sees it. Confirm gift-mode toggles propagate.
+  - *Transpiler ordering.* MP's `HandleToggleGiftMode` transpiler searches the same method and
+    throws if its anchor is gone; this only works if MP patches before the mod. Check MP logs for
+    Harmony patch failures — ordering is undefined, not guaranteed.
 
 ---
 
 ## Version control / Git workflow
 
-- **Origin is the fork.** `origin` →
-  `https://github.com/raouldc/RimworldTradeUI.git` (your fork). Keep the original repo as a
-  separate `upstream` remote so you can pull in updates without pushing to it:
+- **Origin is the fork.** Already applied in this repo: `origin` →
+  `https://github.com/raouldc/RimworldTradeUI.git`, `upstream` →
+  `https://github.com/patrickdevarney/RimworldTradeUI.git`. (Commands below are idempotent —
+  `remote add upstream` will harmlessly error "already exists" if re-run.)
   ```
   git remote set-url origin https://github.com/raouldc/RimworldTradeUI.git
   git remote add upstream https://github.com/patrickdevarney/RimworldTradeUI.git   # if not present
   git fetch upstream
   ```
+  Note there is already an `origin/add-v1.6` branch upstream-side; base 1.6 work on current
+  `main` (which includes the v1.6 merge) unless you specifically need that branch.
 - **Branch per feature** off `main`, e.g. `feat/resizable-window`, `fix/column-overlap`,
   `feat/horizontal-scroll`, then the Phase 2 branches. Keeps each fit fix independently
   reviewable/revertible.
@@ -179,9 +214,12 @@ unless mirrored onto that window. This is in scope for the 1.6 pass.
   repointed and commits made offline, but `git push` will prompt for auth.
 
 ## Build & test (1.6 only)
-1. Open `Source/TradeMod.sln`, restore RimWorld/Verse/Harmony refs. Ensure `TradeUI.csproj`
-   `HintPath` points at the **1.6** publicized `Assembly-CSharp`, and the `PostBuildEvent` copies
-   the DLL to `TradeUI/v1.6/Assemblies/` (today it copies to v1.3 — update it).
+1. Open `Source/TradeMod.sln`, restore RimWorld/Verse/Harmony refs. **The csproj currently has
+   Windows-absolute paths that won't build here:** `HintPath` is a `C:\…` publicized
+   `Assembly-CSharp` (line ~47) and `PostBuildEvent` copies to a `D:\…\v1.3\Assemblies` path
+   (line ~73). Repoint `HintPath` to this machine's 1.6 publicized assembly and change the
+   `PostBuildEvent` target to `TradeUI/v1.6/Assemblies/` (the `v1.6/Assemblies` folder already
+   exists in the repo).
 2. Because the mod transpiles game IL, the build must be validated against 1.6 specifically; do
    not assume the same DLL works on v1.3–v1.5 (out of scope this pass).
 3. In-game checks (RimWorld 1.6):
