@@ -1,31 +1,62 @@
-# RimworldTradeMod
- 
-Description
+# Trade UI Revised (fork)
 
-I always found the original trade UI frustrating. It is difficult to find what items I want to sell among the huge list of junk the trader has. What do negative vs positive numbers mean? Why is the cost of the trade so far away from the accept/cancel buttons?
+A fork of [Trade UI Revised / RimworldTradeUI](https://github.com/patrickdevarney/RimworldTradeUI)
+by Hob Took, extended so the trade window fits any screen and adds several quality-of-life
+improvements.
 
-This mod reorganizes the trade UI into a two-column layout to make it clear what items the colony has vs trader has, who is trading, and how much it will cost.
+## Why
 
+The original trade UI is hard to use: it's difficult to find the items you want to sell among the
+trader's junk, negative vs positive numbers are confusing, and the trade cost sits far from the
+Accept/Cancel buttons. The base mod reorganizes the trade screen into a clear two-column layout
+(your colony on the left, the trader on the right) showing who's trading and what it costs.
 
-Save games and compatibility
+## What this fork adds
 
-This mod merely changes the UI. This is compatible with adding/removing from saved games.
+**Fits your screen (the main fix)**
 
+- Resizable trade window — drag it to any size; the size is remembered between opens (kept local
+  per client in multiplayer).
+- Columns are sized so they never overlap, no matter how narrow the window gets.
+- Horizontal scrollbars appear when a pane is too narrow to show every column, so nothing is cut
+  off.
 
-Multiplayer compatibility
+**Quality-of-life**
 
-This mod supports the RimWorld Multiplayer mod.
+- Pinned column headers (Item / Owned / Price / Trade) on both panes.
+- Per-row bulk buttons: "All" (buy/sell the max) and "$" (aim to zero out silver on that row).
+- A live running silver total next to the Accept button that turns red when the colony can't
+  afford the deal.
+- An "in-deal only" filter to hide rows you aren't trading, plus a highlight on active rows.
+- Coloured action buttons — Accept green, Cancel red, Reset neutral.
+- Scroll position is remembered across opens.
 
+Several of these were on the original author's wishlist (max-money button, button colours).
 
-Future plans
+## Compatibility
 
-If I do continue to add to this mod, some ideas are:
+- **Version:** validated against **RimWorld 1.6** (the mod transpiles game IL, which differs per
+  version).
+- **Saves:** UI-only — safe to add or remove from existing save games.
+- **Multiplayer:** supports the RimWorld Multiplayer mod. Window size and scroll position stay
+  local to each client and are not synced (they can't cause desyncs).
+- **Requires:** Harmony (load it before this mod).
 
--Add alternate view that has colony vs trader in separate tabs
+## Building
 
--Add button to UI that maxes out the amount that can be sold/bought given the colony's/trader's current amount of money (no more fiddling with finding the perfect amount of Cloth to sell to make the trader broke)
+Builds on macOS, Linux, or Windows with the .NET SDK — no Mono or Windows toolchain needed. See
+[BUILD.md](BUILD.md) for full instructions. Quick version:
 
--Re-color "Reset", "Cancel", "Accept" buttons for clarity (Cancel = red, Accept = green)
+```
+# put RimWorld's Managed DLLs in do_not_upload/Managed/ (git-ignored), then:
+./build.sh              # native
+./build.docker.sh       # or in a container
+```
 
+The build drops `TradeUI.dll` into `TradeUI/v1.6/Assemblies/`. To install, copy the `TradeUI/`
+folder into your RimWorld `Mods/` directory and enable it (with Harmony) in-game.
 
-I welcome any ideas to improve the current UI!
+## Credits
+
+Original mod by Hob Took (patrickdevarney). This is a personal fork with the fit fixes and UX
+additions above. Suggestions welcome.
