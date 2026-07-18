@@ -78,11 +78,16 @@ namespace TradeUI
         {
             //Debug.LogError($"It works! Rect {inRect.ToString()}");
 
-            // Change 1: capture the current window size each frame so it persists across opens.
-            // Guard against zero: in MP the inner dialog is created via NewObjectNoCtor and is never
-            // stack-added, so its windowRect stays (0,0). The guard stops MP from zeroing the shared
-            // static; Change 4 additionally reads the real TradingWindow's rect under MP.
-            if (__instance.windowRect.width > 1f && __instance.windowRect.height > 1f)
+            // Change 1/4: capture the current window size each frame so it persists across opens.
+            // In MP the inner dialog is created via NewObjectNoCtor and is never stack-added, so its
+            // windowRect stays (0,0); read the real TradingWindow's rect instead. The zero-guards stop
+            // MP from ever overwriting the shared static with (0,0).
+            Vector2 mpSize = GetMultiplayerWindowSize();
+            if (mpSize.x > 1f && mpSize.y > 1f)
+            {
+                TradeUIParameters.windowSize = mpSize;
+            }
+            else if (__instance.windowRect.width > 1f && __instance.windowRect.height > 1f)
             {
                 TradeUIParameters.windowSize = __instance.windowRect.size;
             }
@@ -1214,6 +1219,73 @@ namespace TradeUI
                 size.x = Mathf.Clamp(size.x, 550f, UI.screenWidth);
                 size.y = Mathf.Clamp(size.y, 500f, UI.screenHeight);
                 __result = size;
+            }
+        }
+
+        // --- Multiplayer helpers (Change 4) ---
+        // All MP access goes through reflection so the build never hard-references the Multiplayer
+        // assembly. Window size / scroll position stay client-local (display-only UI state) - they
+        // are NOT routed through MP action sync and cannot desync.
+        static bool s_mpTypeChecked;
+        static System.Type s_mpTradingWindowType;
+
+        static System.Type MpTradingWindowType()
+        {
+            if (!s_mpTypeChecked)
+            {
+                s_mpTypeChecked = true;
+                bool mpLoaded = LoadedModManager.RunningModsListForReading.Any(
+                    m => m.PackageId == "rwmt.Multiplayer".ToLowerInvariant());
+                if (mpLoaded)
+                {
+                    s_mpTradingWindowType = System.Type.GetType("Multiplayer.Client.TradingWindow, Multiplayer");
+                }
+            }
+            return s_mpTradingWindowType;
+        }
+
+        // Returns the real MP TradingWindow's size, or Vector2.zero when not in MP / not open.
+        static Vector2 GetMultiplayerWindowSize()
+        {
+            System.Type type = MpTradingWindowType();
+            if (type == null)
+            {
+                return Vector2.zero;
+            }
+            foreach (Window w in Find.WindowStack.Windows)
+            {
+                if (type.IsInstanceOfType(w))
+                {
+                    return w.windowRect.size;
+                }
+            }
+            return Vector2.zero;
+        }
+
+        // Change 4: make the MP trade window resizable too. Patch the TradingWindow *constructor* -
+        // TradingWindow does not override PostOpen, so patching PostOpen would resolve to base
+        // Verse.Window.PostOpen and fire for every window in the game.
+        [HarmonyPatch]
+        static class PatchTradingWindowResizeable
+        {
+            static void Postfix(Window __instance)
+            {
+                __instance.resizeable = true;
+            }
+
+            public static bool Prepare()
+            {
+                return LoadedModManager.RunningModsListForReading.Any(
+                    m => m.PackageId == "rwmt.Multiplayer".ToLowerInvariant());
+            }
+
+            public static MethodBase TargetMethod()
+            {
+                System.Type multiplayerTradeUIType = System.Type.GetType("Multiplayer.Client.TradingWindow, Multiplayer");
+                MethodBase ctor = AccessTools.GetDeclaredConstructors(multiplayerTradeUIType).FirstOrDefault();
+                if (ctor == null)
+                    Log.Error("[TradeUI] failed to find multiplayer TradingWindow constructor");
+                return ctor;
             }
         }
 
