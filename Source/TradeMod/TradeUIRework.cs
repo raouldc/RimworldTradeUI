@@ -1470,7 +1470,20 @@ namespace TradeUI
         {
             static void Postfix(ref Vector2 __result)
             {
-                __result.x = Mathf.Min(UI.screenWidth, __result.x + 360);
+                // Change 4: mirror the SP InitialSize logic so the MP TradingWindow also restores the
+                // client-local persisted size (else the legacy +360 default), clamped to screen.
+                Vector2 size;
+                if (TradeUIParameters.windowSize != Vector2.zero)
+                {
+                    size = TradeUIParameters.windowSize;
+                }
+                else
+                {
+                    size = new Vector2(__result.x + 360f, __result.y);
+                }
+                size.x = Mathf.Clamp(size.x, 550f, UI.screenWidth);
+                size.y = Mathf.Clamp(size.y, 500f, UI.screenHeight);
+                __result = size;
             }
 
             public static bool Prepare()
