@@ -229,11 +229,25 @@ namespace TradeUI
 
             // [        icon [i] Silver     my amount      < transfer amount        their amount            ]
 
+            // Save GUI state so this footer never leaks Anchor/WordWrap/color into later draws.
+            TextAnchor oldAnchor = Text.Anchor;
+            bool oldWrap = Text.WordWrap;
+            Color oldColor = GUI.color;
+
             Text.Font = GameFont.Small;
             GUI.BeginGroup(rect);
 
+            // Footer bug fix (Change 3): DoCountAdjustInterfaceInternal reads isDrawingColonyItems,
+            // which the footer never set - it inherited whatever the last row left. Set it explicitly.
+            TradeUIParameters.Singleton.isDrawingColonyItems = true;
+
+            float center = rect.width / 2f;
+            // Re-anchor the centre-relative offsets to the column model and clamp them so the amounts
+            // stay on-screen at narrow widths (Change 2).
+            float sideOffset = Mathf.Min(300f, center - 60f);
+
             // Draw transfer amount
-            Rect transferRect = new Rect(rect.center.x - (240 / 2), 0f, 240f, rect.height);
+            Rect transferRect = new Rect(center - (240f / 2f), 0f, 240f, rect.height);
             bool flash = Time.time - Dialog_Trade.lastCurrencyFlashTime < 1f && trad.IsCurrency;
             TransferableUIUtility.DoCountAdjustInterface(transferRect, trad, 0, trad.GetMinimumToTransfer(), trad.GetMaximumToTransfer(), flash, null, false);
             //GUI.Label(transferRect, "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
@@ -244,7 +258,7 @@ namespace TradeUI
             {
                 Text.Anchor = TextAnchor.MiddleRight;
                 float ourAmountWidth = 100f;
-                var ourRect = new Rect(rect.center.x - (ourAmountWidth / 2) - 300, 0f, ourAmountWidth, rect.height); ;
+                var ourRect = new Rect(center - (ourAmountWidth / 2f) - sideOffset, 0f, ourAmountWidth, rect.height);
                 if (Mouse.IsOver(ourRect))
                 {
                     Widgets.DrawHighlight(ourRect);
@@ -262,7 +276,7 @@ namespace TradeUI
             {
                 Text.Anchor = TextAnchor.MiddleLeft;
                 float theirAmountWidth = 100f;
-                var theirRect = new Rect(rect.center.x - (theirAmountWidth / 2) + 300, 0f, theirAmountWidth, rect.height);
+                var theirRect = new Rect(center - (theirAmountWidth / 2f) + sideOffset, 0f, theirAmountWidth, rect.height);
                 if (Mouse.IsOver(theirRect))
                 {
                     Widgets.DrawHighlight(theirRect);
@@ -284,6 +298,11 @@ namespace TradeUI
             //GUI.Label(idRect, "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
             GenUI.ResetLabelAlign();
             GUI.EndGroup();
+
+            // Restore state
+            Text.Anchor = oldAnchor;
+            Text.WordWrap = oldWrap;
+            GUI.color = oldColor;
         }
 
         static void MyDrawTransferableInfoSilver(Transferable trad, Rect idRect, Color labelColor)
