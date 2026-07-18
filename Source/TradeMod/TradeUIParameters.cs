@@ -19,6 +19,10 @@ namespace TradeUI
         // Client-local persisted window size (Change 1). Pure UI state, never MP-synced.
         public static Vector2 windowSize = Vector2.zero;
 
+        // Change 2: max width consumed by DoExtraIcons/DrawCaptiveTradeInfo across drawn rows,
+        // measured live and fed into the minimum row width so extra icons never crowd the name.
+        public static float maxExtraIconWidth = 0f;
+
         public void Reset()
         {
             scrollPositionLeft = Vector2.zero;

@@ -390,6 +390,23 @@ namespace TradeUI
         [HarmonyPatch(typeof(RimWorld.Dialog_Trade), "FillMainRect")]
         public static class Harmony_DialogTrade_FillMainRect
         {
+            // Change 2: shared column widths so the row draw, the min-width calc, and (later)
+            // the column headers all line up. Keep TRANSFER_WIDTH >= 137: DoCountAdjustInterfaceInternal
+            // hardcodes a 120px+margins mini-rect anchored to rect.xMax.
+            public const float COST_WIDTH = 90f;
+            public const float TRANSFER_WIDTH = 160f;
+            public const float OWNED_AMOUNT_WIDTH = 75f;
+            public const float ICON_INFO_WIDTH = 80f;   // icon (27) + info button + padding; name starts at x=80
+            public const float NAME_MIN_WIDTH = 140f;    // minimum readable space reserved for the label
+
+            // Minimum content width a row needs so the right-anchored blocks always have room and the
+            // name rect never collapses. extraIconWidth is measured live (see MyDrawTradableRow).
+            public static float MinRowWidth()
+            {
+                return ICON_INFO_WIDTH + NAME_MIN_WIDTH + OWNED_AMOUNT_WIDTH + COST_WIDTH + TRANSFER_WIDTH
+                    + TradeUIParameters.maxExtraIconWidth;
+            }
+
             static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance)
             {
                 // Draw headers
@@ -575,10 +592,8 @@ namespace TradeUI
                 // TDOO: handle somewhere in the trade what happens when I select (sell 10 steel + buy 5 steel)
                 // I think this would be an improvement. Split into two tradeables. This would probably affect a large amount of code (more multiplayer patches possibly to sync the new tradables lsit)
 
-                const float COST_WIDTH = 90f;
-                const float TRANSFER_WIDTH = 160f;
-                const float OWNED_AMOUNT_WIDTH = 75f;
-
+                // Change 2: column widths are now shared class constants (COST_WIDTH,
+                // TRANSFER_WIDTH, OWNED_AMOUNT_WIDTH) so headers and min-width calc stay in sync.
                 if (!trad.TraderWillTrade)
                 {
                     // Since no price will be shown, we will occupy more space
@@ -650,13 +665,28 @@ namespace TradeUI
                     xPosition -= (OWNED_AMOUNT_WIDTH + COST_WIDTH);
                 }
 
-                // draw animal bond/ridability
+                // draw animal bond/ridability + ideology captive info.
+                // Change 2: measure how much these consume so MinRowWidth() can reserve room for
+                // them (animal bond/ridable + captive/ideology rows can eat 2-3 icons).
+                float xBeforeExtras = xPosition;
                 TransferableUIUtility.DoExtraIcons(trad, mainRect, ref xPosition);
 
                 // draw Ideaology something
                 if (ModsConfig.IdeologyActive)
                 {
                     TransferableUIUtility.DrawCaptiveTradeInfo(trad, TradeSession.trader, mainRect, ref xPosition);
+                }
+                float extrasConsumed = xBeforeExtras - xPosition;
+                if (extrasConsumed > TradeUIParameters.maxExtraIconWidth)
+                {
+                    TradeUIParameters.maxExtraIconWidth = extrasConsumed;
+                }
+
+                // Defensive clamp: never let the name rect go negative even if a pane is dragged
+                // below the minimum before horizontal scroll (Change 3) catches up.
+                if (xPosition < 0f)
+                {
+                    xPosition = 0f;
                 }
 
                 // draw icon, ID icon, name
