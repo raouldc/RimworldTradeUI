@@ -25,8 +25,8 @@ namespace TradeUI
 
         public void Reset()
         {
-            scrollPositionLeft = Vector2.zero;
-            scrollPositionRight = Vector2.zero;
+            // UX-E: scroll positions intentionally persist across trade opens. BeginScrollView clamps
+            // a stale position to the new content each frame, so keeping it is safe (and remembered).
             isRightDown = false;
         }
 

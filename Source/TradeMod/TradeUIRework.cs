@@ -137,7 +137,12 @@ namespace TradeUI
             else
             // WHAT IS THIS? end
             {
-                if (Widgets.ButtonText(buttonsRect, TradeSession.giftMode ? ("OfferGifts".Translate() + " (" + FactionGiftUtility.GetGoodwillChange(TradeSession.deal.AllTradeables, TradeSession.trader.Faction).ToStringWithSign() + ")") : "AcceptButton".Translate(), true, true, true))
+                // UX-E: Accept/Offer button = green.
+                Color prevAcceptColor = GUI.color;
+                GUI.color = new Color(0.55f, 0.9f, 0.55f);
+                bool acceptClicked = Widgets.ButtonText(buttonsRect, TradeSession.giftMode ? ("OfferGifts".Translate() + " (" + FactionGiftUtility.GetGoodwillChange(TradeSession.deal.AllTradeables, TradeSession.trader.Faction).ToStringWithSign() + ")") : "AcceptButton".Translate(), true, true, true);
+                GUI.color = prevAcceptColor;
+                if (acceptClicked)
                 {
                     System.Action action = delegate ()
                     {
@@ -180,7 +185,12 @@ namespace TradeUI
                 }
             }
 
-            if (Widgets.ButtonText(new Rect(buttonsRect.xMax + 10f, buttonsRect.y, Dialog_Trade.OtherBottomButtonSize.x, Dialog_Trade.OtherBottomButtonSize.y), "CancelButton".Translate(), true, true, true))
+            // UX-E: Cancel button = red (deliberate, was only incidentally reddish before).
+            Color prevCancelColor = GUI.color;
+            GUI.color = new Color(0.9f, 0.5f, 0.5f);
+            bool cancelClicked = Widgets.ButtonText(new Rect(buttonsRect.xMax + 10f, buttonsRect.y, Dialog_Trade.OtherBottomButtonSize.x, Dialog_Trade.OtherBottomButtonSize.y), "CancelButton".Translate(), true, true, true);
+            GUI.color = prevCancelColor;
+            if (cancelClicked)
             {
                 __instance.Close(true);
                 Event.current.Use();
