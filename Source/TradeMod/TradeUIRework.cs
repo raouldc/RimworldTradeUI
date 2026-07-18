@@ -118,6 +118,24 @@ namespace TradeUI
                 Dialog_Trade.AcceptButtonSize.x,
                 Dialog_Trade.AcceptButtonSize.y);
 
+            // UX-D: live net-silver running total next to the Accept/Reset cluster. Red when the
+            // colony can't afford the deal (same check the Accept path uses, surfaced continuously).
+            if (__instance.cachedCurrencyTradeable != null)
+            {
+                int silverDelta = __instance.cachedCurrencyTradeable.CountToTransfer;
+                bool canAfford = TradeSession.deal.DoesTraderHaveEnoughSilver();
+                float resetLeft = buttonsRect.x - 10f - Dialog_Trade.OtherBottomButtonSize.x;
+                const float totalX = 160f; // leave room for the UX-C filter toggle at the far left
+                Rect totalRect = new Rect(totalX, buttonsRect.y, Mathf.Max(0f, resetLeft - 10f - totalX), Dialog_Trade.OtherBottomButtonSize.y);
+                TextAnchor prevTotalAnchor = Text.Anchor;
+                Color prevTotalColor = GUI.color;
+                Text.Anchor = TextAnchor.MiddleRight;
+                GUI.color = canAfford ? Color.white : new Color(1f, 0.4f, 0.4f);
+                Widgets.Label(totalRect, "Silver: " + silverDelta.ToStringWithSign());
+                Text.Anchor = prevTotalAnchor;
+                GUI.color = prevTotalColor;
+            }
+
             // end draw footer (replaces original code entirely)
             // WHAT IS THIS? start
             bool hasTradablesSet = false;
