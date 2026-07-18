@@ -249,6 +249,18 @@ namespace TradeUI
                     TooltipHandler.TipRegionByKey(rect6, "GiftModeTip", faction.Name);
                 }
             }
+
+            // UX-C: in-deal filter toggle at the far left of the button row. Display-only local state,
+            // so it is safe under MP (no deal mutation).
+            Rect filterRect = new Rect(0f, buttonsRect.y, 150f, Dialog_Trade.OtherBottomButtonSize.y);
+            bool filterOn = TradeUIParameters.Singleton.filterInDealOnly;
+            if (Widgets.ButtonText(filterRect, filterOn ? "Showing: in deal" : "Show: all items", true, true, true))
+            {
+                TradeUIParameters.Singleton.filterInDealOnly = !filterOn;
+                Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
+            }
+            TooltipHandler.TipRegion(filterRect, new TipSignal("Toggle showing only items currently in the deal."));
+
             GUI.EndGroup();
 
         }
@@ -622,13 +634,17 @@ namespace TradeUI
                 GUI.EndGroup();*/
 
                 // Calculate scroll height
+                // UX-C: when the in-deal filter is on, only count rows that are part of the deal so
+                // the scroll height matches the (fewer) rows actually drawn.
+                bool filterInDeal = TradeUIParameters.Singleton.filterInDealOnly;
                 float leftHeight = 6f;
                 float rightHeight = 6f;
                 foreach (var entry in ___cachedTradeables)
                 {
-                    if (entry.thingsColony != null && entry.thingsColony.Count > 0)
+                    bool inDeal = !filterInDeal || entry.CountToTransfer != 0;
+                    if (inDeal && entry.thingsColony != null && entry.thingsColony.Count > 0)
                         leftHeight += 30f;
-                    if (entry.thingsTrader != null && entry.thingsTrader.Count > 0)
+                    if (inDeal && entry.thingsTrader != null && entry.thingsTrader.Count > 0)
                         rightHeight += 30f;
                 }
 
@@ -654,6 +670,9 @@ namespace TradeUI
                 {
                     // Only draw stuff we have
                     if (___cachedTradeables[i].thingsColony == null || ___cachedTradeables[i].thingsColony.Count == 0)
+                        continue;
+                    // UX-C: skip rows not in the deal (without advancing num, so no blank gaps).
+                    if (filterInDeal && ___cachedTradeables[i].CountToTransfer == 0)
                         continue;
 
                     if (num > num2 && num < num3)
@@ -689,6 +708,9 @@ namespace TradeUI
                 {
                     // Only draw stuff they have
                     if (___cachedTradeables[i].thingsTrader == null || ___cachedTradeables[i].thingsTrader.Count == 0)
+                        continue;
+                    // UX-C: skip rows not in the deal (without advancing num, so no blank gaps).
+                    if (filterInDeal && ___cachedTradeables[i].CountToTransfer == 0)
                         continue;
 
                     if (num > num2 && num < num3)
@@ -734,6 +756,12 @@ namespace TradeUI
                 if (Mathf.Abs(index) % 2 == 1)
                 {
                     Widgets.DrawLightHighlight(mainRect);
+                }
+
+                // UX-C: emphasise rows that are part of the current deal so they stand out.
+                if (trad.CountToTransfer != 0)
+                {
+                    Widgets.DrawHighlight(mainRect);
                 }
 
                 // Hack to prevent formatting for currency

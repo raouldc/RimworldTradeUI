@@ -34,5 +34,8 @@ namespace TradeUI
         public Vector2 scrollPositionLeft;
         public Vector2 scrollPositionRight;
         public bool isRightDown = false;
+
+        // UX-C: when true, only rows already in the deal (CountToTransfer != 0) are shown.
+        public bool filterInDealOnly = false;
     }
 }
