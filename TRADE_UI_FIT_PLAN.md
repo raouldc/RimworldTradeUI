@@ -47,12 +47,13 @@ are not trying to make it so here. Point the csproj `HintPath`/publicized assemb
   knob, so don't try to raise it. Clamp the returned `InitialSize` to a sane minimum and let
   horizontal scroll (Change 3) absorb any under-minimum width the user drags to — the columns
   won't crush because of Change 2.
-- **Multiplayer (required, not optional):** setting `resizeable` on `Dialog_Trade` does nothing
-  for the MP trade window, which is a separate `Multiplayer.Client.TradingWindow`
-  (see `PatchTradingWindowWidth`, TradeUIRework.cs:1139-1163). If MP resize is in scope, add an
-  equivalent `resizeable`/size patch against that type. (The two `+360` patches target different
-  getters and do **not** conflict.) For a 1.6-only first pass, MP can be deferred — call it out
-  as a known gap.
+- **Multiplayer is required (see the dedicated section below).** Setting `resizeable` on
+  `Dialog_Trade` does nothing for the MP trade window, which is a separate
+  `Multiplayer.Client.TradingWindow` (see `PatchTradingWindowWidth`, TradeUIRework.cs:1139-1163),
+  so the same `resizeable`/size + column + scroll changes must also be applied there. **Window
+  size and scroll position stay client-local** — they are pure UI state, so they must NOT go
+  through MP's action sync; keeping them local is both correct and simpler (no determinism
+  concerns). The two `+360` patches target different getters and do **not** conflict.
 - Verify the layout reflows: `MyDoWindowContents` and the `FillMainRect` prefix both derive
   every rect from `inRect`/`mainRect` each frame inside the vanilla `GUI.BeginGroup(inRect)`
   (closed at line 209), so resizing already re-lays-out — the only thing that breaks at small
@@ -123,6 +124,32 @@ In the `Harmony_DialogTrade_FillMainRect.Prefix` (lines ~460-518):
   whatever the last row left — a pre-existing latent bug. Anything touching the footer should set
   that flag explicitly and re-anchor to the column model (see Change 2).
 
+## Change 4 — Multiplayer parity (required)
+
+The RimWorld Multiplayer mod (`rwmt.Multiplayer`) does not use `Dialog_Trade` — it opens its own
+`Multiplayer.Client.TradingWindow` wrapper, so none of the changes above reach an MP session
+unless mirrored onto that window. This is in scope for the 1.6 pass.
+
+- **Investigate the MP render path first.** The existing `DoCountAdjustInterfaceInternal` prefix
+  guards with `if (!Find.WindowStack.IsOpen<Dialog_Trade>()) return true;` (line ~670). Under MP,
+  `Dialog_Trade` is not the open window, so this guard makes the mod fall back to vanilla count
+  drawing — a sign the rework may be partially bypassed in MP today. Confirm whether
+  `TradingWindow` routes through `Dialog_Trade.FillMainRect` / `MyDrawTradableRow` (in which case
+  the column + horizontal-scroll fixes apply for free) or reimplements its own drawing (in which
+  case the fixes must be applied to that path, and the `IsOpen<Dialog_Trade>()` guard needs to
+  also accept the MP window).
+- **Resizable + size persistence:** add a `resizeable = true` patch against `TradingWindow`
+  (constructor/`PostOpen` equivalent) alongside the existing `PatchTradingWindowWidth`. Reuse the
+  same client-local `TradeUIParameters.windowSize`; do **not** sync it.
+- **Determinism boundary — the key simplification:** window size, scroll position, and any
+  column widths are display-only and stay local per client, so they need no MP sync and cannot
+  desync the game state. Only actions that mutate the *deal* (Phase 2 bulk/max buttons) must go
+  through MP's sync layer like the vanilla adjust paths; the fit fixes themselves do not.
+- Guard MP-specific patches so they no-op when Multiplayer isn't loaded (the existing
+  `PatchTradingWindowWidth.Prepare()` already checks for the `rwmt.Multiplayer` package — follow
+  that pattern via `[HarmonyPatch]` + `Prepare()`/`TargetMethod()` reflection so the build doesn't
+  hard-reference the MP assembly).
+
 ---
 
 ## Version control / Git workflow
@@ -165,9 +192,10 @@ In the `Harmony_DialogTrade_FillMainRect.Prefix` (lines ~460-518):
    - Reopen trade → window remembers the last size (and is clamped if resolution changed).
    - Test gift mode, "trader will not trade" rows, slavery-restricted rows, animal/captive rows
      (extra icons), and the silver footer row at both narrow and wide widths.
-   - **Multiplayer:** deferred for the 1.6 pass. The MP trade window
-     (`Multiplayer.Client.TradingWindow`) is a separate window and won't inherit the resize/scroll
-     changes — note as a known gap, revisit if MP support is required.
+   - **Multiplayer (required):** run an actual MP session and verify resize, horizontal scroll,
+     and column sizing all work in the `Multiplayer.Client.TradingWindow` (Change 4). Confirm
+     window size / scroll stay local to each client and that no desync warning fires. Test with
+     two clients where one resizes and the other does not.
 
 ## Risks / watch-outs
 - `MyDoWindowContents` calls `GUI.EndGroup()` (line 209) to close the group opened by vanilla
@@ -189,6 +217,8 @@ In the `Harmony_DialogTrade_FillMainRect.Prefix` (lines ~460-518):
 2. Change 2 (column constants + minRowWidth) — the actual overlap fix.
 3. Change 3 (horizontal scroll) — depends on `minRowWidth` from Change 2.
 4. Currency footer + optional draggable columns.
+5. Change 4 (Multiplayer parity) — mirror 1–3 onto `TradingWindow`; do the MP render-path
+   investigation early since it may affect how 2–3 are structured.
 
 ---
 
@@ -211,8 +241,9 @@ The pain the README calls out: fiddling to find the exact quantity that zeroes o
   running balance until silver hits ~0. Scope this as its own item, not a one-liner.
 - Place any new button in the transfer block; fold its width into `minRowWidth` (Change 2) so it
   doesn't reintroduce overlap.
-- **Multiplayer:** deferred with the rest of MP for the 1.6 pass; when re-enabled, bulk/max
-  actions mutate the deal and would need MP sync like the vanilla adjust paths.
+- **Multiplayer:** unlike the fit fixes, bulk/max buttons mutate the *deal*, so they **do** need
+  MP sync like the vanilla adjust paths (route through the MP action layer). This is the one place
+  MP sync is required — the resize/scroll/column work stays local (Change 4).
 
 ## UX-B — Column headers (+ optional click-to-sort)
 Right now the panes have no labels, so nothing identifies qty vs price vs transfer amount.
