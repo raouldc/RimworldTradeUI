@@ -6,11 +6,12 @@ the Mac to compile against.
 
 ## What you need
 - **.NET SDK** (8.0+) — https://dotnet.microsoft.com/download
-- **RimWorld's `Managed` folder.** These DLLs are not redistributable. Either install RimWorld on
-  the Mac, or copy the `Managed` folder from your Windows install:
-  `…\RimWorld\RimWorldWin64_Data\Managed\` → anywhere on the Mac.
+- **RimWorld's `Managed` folder.** These DLLs are not redistributable, so they live in the
+  git-ignored `do_not_upload/Managed/` folder (the build looks there by default). Either install
+  RimWorld on the Mac and copy its `Managed` folder into `do_not_upload/Managed/`, or copy it from
+  your Windows install: `…\RimWorld\RimWorldWin64_Data\Managed\` → `do_not_upload/Managed/`.
   (The managed assemblies are identical across OSes for the same game version, so the Windows
-  copy is fine to build against.)
+  copy is fine to build against.) `do_not_upload/` is in `.gitignore` and will not be committed.
 - **Docker Desktop** — only if you want the containerized build.
 
 The build uses two NuGet packages so no Windows/Mono is required:
@@ -20,19 +21,20 @@ The build uses two NuGet packages so no Windows/Mono is required:
 
 ## Option A — native (no Docker)
 ```
-# default macOS Steam path is assumed; otherwise set RIMWORLD_MANAGED
-RIMWORLD_MANAGED="/path/to/RimWorld/Managed" ./build.sh
+# uses do_not_upload/Managed by default; override with RIMWORLD_MANAGED if elsewhere
+./build.sh
 ```
 Or directly:
 ```
-dotnet build Source/TradeMod/TradeUI.csproj -c Release -p:RimWorldManaged="/path/to/Managed"
+dotnet build Source/TradeMod/TradeUI.csproj -c Release
 ```
 
 ## Option B — Docker
 ```
-RIMWORLD_MANAGED="/path/to/RimWorld/Managed" ./build.docker.sh
+./build.docker.sh
 ```
-The `Managed` folder is mounted read-only; nothing game-owned is baked into the image.
+The `Managed` folder (default `do_not_upload/Managed`) is mounted read-only; nothing game-owned is
+baked into the image.
 
 ## Output
 Both routes drop the DLL into `TradeUI/v1.6/Assemblies/TradeUI.dll` (the loadable mod folder).

@@ -3,3 +3,9 @@ bin/
 obj/
 *.csproj
 build/
+
+# Local RimWorld managed DLLs used only for building (not redistributable)
+do_not_upload/
+
+# OS junk
+.DS_Store

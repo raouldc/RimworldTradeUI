@@ -10,8 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-DEFAULT_MAC_MANAGED="$HOME/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Contents/Resources/Data/Managed"
-RIMWORLD_MANAGED="${RIMWORLD_MANAGED:-$DEFAULT_MAC_MANAGED}"
+# Default to the repo's git-ignored do_not_upload/Managed folder; override with RIMWORLD_MANAGED.
+DEFAULT_MANAGED="$PWD/do_not_upload/Managed"
+RIMWORLD_MANAGED="${RIMWORLD_MANAGED:-$DEFAULT_MANAGED}"
 
 if [ ! -f "$RIMWORLD_MANAGED/Assembly-CSharp.dll" ]; then
   echo "ERROR: Assembly-CSharp.dll not found under:"

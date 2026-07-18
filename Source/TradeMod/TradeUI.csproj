@@ -26,8 +26,11 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
-    <!-- Default to the macOS Steam location; override with -p:RimWorldManaged=... -->
-    <RimWorldManaged Condition="'$(RimWorldManaged)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Contents/Resources/Data/Managed</RimWorldManaged>
+    <!--
+      Default to the repo's git-ignored do_not_upload/Managed folder (drop RimWorld's managed
+      DLLs there). Override with -p:RimWorldManaged=... to point elsewhere.
+    -->
+    <RimWorldManaged Condition="'$(RimWorldManaged)' == ''">$(MSBuildProjectDirectory)/../../do_not_upload/Managed</RimWorldManaged>
   </PropertyGroup>
 
   <ItemGroup>
