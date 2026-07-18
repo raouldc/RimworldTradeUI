@@ -917,12 +917,23 @@ namespace TradeUI
                 {
                     //Log.Message("[TradeUI] TransferableUIUtility.DoCountAdjustInterfaceInternal prefix");
 
-                    // Skip this behavior if we aren't in a trade UI (transport pod)
-                    if (!Find.WindowStack.IsOpen<Dialog_Trade>())
+                    // Skip this behavior only if we aren't in a trade UI at all (e.g. transport pods).
+                    // The trade UI is either the vanilla Dialog_Trade on the window stack (SP) OR the
+                    // MP TradingWindow (under RimWorld Multiplayer, Dialog_Trade is drawn *inside* the
+                    // TradingWindow and never added to the stack, so IsOpen<Dialog_Trade>() is false).
+                    // Previously this guard returned true in MP, so vanilla count-button drawing ran and
+                    // overlapped the mod's price column. Detect the MP window too so our custom widget
+                    // (which stays inside the reserved TRANSFER_WIDTH rect) draws in MP as well.
+                    if (!Find.WindowStack.IsOpen<Dialog_Trade>() && !MpTradeWindowOpen())
                     {
-                        //Log.Message("[TradeUI] Dialog_Trade window is not open. Drawing vanilla UI buttons");
+                        //Log.Message("[TradeUI] Not in a trade UI. Drawing vanilla UI buttons");
                         return true;
                     }
+
+                    // Session ownership: in MP only the negotiating faction may edit the deal. Force the
+                    // read-only display path (count label, no interactive arrows/textbox) for everyone
+                    // else. Mirrors the MP mod's own gating for its vanilla widgets. No-op in SP.
+                    readOnly = readOnly || MpTradeReadOnly();
 
                     rect = rect.Rounded();
 
@@ -1441,6 +1452,118 @@ namespace TradeUI
                 }
             }
             return Vector2.zero;
+        }
+
+        // True when the MP TradingWindow is currently on the window stack. Under RimWorld Multiplayer
+        // the vanilla Dialog_Trade is NOT added to the stack - MP hosts an inner Dialog_Trade inside
+        // TradingWindow and calls DoWindowContents directly - so Find.WindowStack.IsOpen<Dialog_Trade>()
+        // is false during MP trading. We use this to detect the trade UI so our custom count widget runs.
+        static bool MpTradeWindowOpen()
+        {
+            System.Type type = MpTradingWindowType();
+            if (type == null)
+            {
+                return false;
+            }
+            foreach (Window w in Find.WindowStack.Windows)
+            {
+                if (type.IsInstanceOfType(w))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- MP session-ownership reflection (Change 5) ---
+        // In MP only the negotiating faction may edit the deal. The MP mod itself gates its own
+        // (vanilla) count widgets this way (see Multiplayer's TradingUI.cs
+        // DisableTradeCountButtonsForOtherFactions:
+        //   MpTradeSession.current.NegotiatorFaction == Multiplayer.RealPlayerFaction).
+        // Our custom widget draws its own arrows/textbox (not vanilla Widgets.ButtonText), so MP's
+        // guards don't cover them - we replicate the check by reflection and force the read-only path
+        // for non-negotiating players. All lookups are cached and fully null/exception guarded, so a
+        // missing MP assembly or member simply disables the gate (behaviour identical to SP).
+        static bool s_mpMembersChecked;
+        static FieldInfo s_mpDrawingTradeField;       // TradingWindow.drawingTrade (static)
+        static FieldInfo s_mpCurrentSessionField;     // MpTradeSession.current (static)
+        static PropertyInfo s_mpNegotiatorFactionProp; // MpTradeSession.NegotiatorFaction (instance)
+        static PropertyInfo s_mpRealPlayerFactionProp; // Multiplayer.RealPlayerFaction (static)
+
+        static void EnsureMpTradeMembers()
+        {
+            if (s_mpMembersChecked)
+            {
+                return;
+            }
+            s_mpMembersChecked = true;
+            try
+            {
+                System.Type tradingWindowType = MpTradingWindowType();
+                if (tradingWindowType == null)
+                {
+                    return;
+                }
+                System.Type tradeSessionType = System.Type.GetType("Multiplayer.Client.MpTradeSession, Multiplayer");
+                System.Type multiplayerType = System.Type.GetType("Multiplayer.Client.Multiplayer, Multiplayer");
+                if (tradeSessionType == null || multiplayerType == null)
+                {
+                    return;
+                }
+
+                s_mpDrawingTradeField = tradingWindowType.GetField("drawingTrade", BindingFlags.Public | BindingFlags.Static);
+                s_mpCurrentSessionField = tradeSessionType.GetField("current", BindingFlags.Public | BindingFlags.Static);
+                s_mpNegotiatorFactionProp = tradeSessionType.GetProperty("NegotiatorFaction", BindingFlags.Public | BindingFlags.Instance);
+                s_mpRealPlayerFactionProp = multiplayerType.GetProperty("RealPlayerFaction", BindingFlags.Public | BindingFlags.Static);
+            }
+            catch (Exception e)
+            {
+                Log.Warning("[TradeUI] Failed to resolve Multiplayer trade-session members; MP edit-gating disabled. " + e.Message);
+                s_mpDrawingTradeField = null;
+                s_mpCurrentSessionField = null;
+                s_mpNegotiatorFactionProp = null;
+                s_mpRealPlayerFactionProp = null;
+            }
+        }
+
+        // Returns true when we are currently drawing the MP trade window for a player whose faction is
+        // NOT the negotiating faction. Such players must see the read-only display (label only, no
+        // interactive arrows/textbox). Returns false in SP, when MP isn't loaded, when any member is
+        // missing, or when the local player IS the negotiator.
+        static bool MpTradeReadOnly()
+        {
+            EnsureMpTradeMembers();
+            if (s_mpDrawingTradeField == null || s_mpCurrentSessionField == null
+                || s_mpNegotiatorFactionProp == null || s_mpRealPlayerFactionProp == null)
+            {
+                return false;
+            }
+            try
+            {
+                // Only gate while the MP trade window is actually being drawn (drawingTrade is set for
+                // the duration of TradingWindow.DoWindowContents -> Dialog_Trade.DoWindowContents).
+                if (s_mpDrawingTradeField.GetValue(null) == null)
+                {
+                    return false;
+                }
+                object currentSession = s_mpCurrentSessionField.GetValue(null);
+                if (currentSession == null)
+                {
+                    return false;
+                }
+                Faction negotiatorFaction = s_mpNegotiatorFactionProp.GetValue(currentSession, null) as Faction;
+                Faction realPlayerFaction = s_mpRealPlayerFactionProp.GetValue(null, null) as Faction;
+                if (negotiatorFaction == null || realPlayerFaction == null)
+                {
+                    return false;
+                }
+                return negotiatorFaction != realPlayerFaction;
+            }
+            catch (Exception)
+            {
+                // Never let a reflection hiccup break rendering; fall back to interactive (SP-like).
+                return false;
+            }
         }
 
         // Change 4: make the MP trade window resizable too. Patch the TradingWindow *constructor* -
