@@ -1,81 +1,87 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-platform build (macOS/Linux/Windows).
+    Targets .NET Framework 4.7.2 (RimWorld's runtime) using the net472 reference assemblies
+    NuGet package, so no Windows/Mono install is required to compile. Krafs.Publicizer
+    publicizes Assembly-CSharp at build time, so you do NOT need a pre-made
+    Assembly-CSharp_publicized.dll.
+
+    You must supply RimWorld's managed DLLs (not redistributable). Point RimWorldManaged at your
+    RimWorld install's "Managed" folder, e.g.:
+      - macOS (Steam): ~/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Contents/Resources/Data/Managed
+      - Windows (Steam): C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed
+    Override on the command line with:  dotnet build -c Release -p:RimWorldManaged="/path/to/Managed"
+  -->
+
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{9D2DBD60-62FD-45B3-83CB-5313628508BA}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>TradeUI</RootNamespace>
+    <TargetFramework>net472</TargetFramework>
     <AssemblyName>TradeUI</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
+    <RootNamespace>TradeUI</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Keep the existing Properties/AssemblyInfo.cs instead of an auto-generated one -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>false</DebugSymbols>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>..\..\build\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugSymbols>false</DebugSymbols>
+    <!-- Default to the macOS Steam location; override with -p:RimWorldManaged=... -->
+    <RimWorldManaged Condition="'$(RimWorldManaged)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/RimWorld/RimWorldMac.app/Contents/Resources/Data/Managed</RimWorldManaged>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
+
   <ItemGroup>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="TradeUIParameters.cs" />
-    <Compile Include="TradeUIRework.cs" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+    <PackageReference Include="Krafs.Publicizer" Version="2.2.1" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
+
+  <!-- Publicize the game assembly so internal/private members are accessible at compile time -->
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony">
-      <Version>2.3.3</Version>
-    </PackageReference>
+    <Publicize Include="Assembly-CSharp" />
   </ItemGroup>
+
+  <!-- RimWorld + Unity managed references (not copied to output) -->
   <ItemGroup>
-    <Reference Include="Assembly-CSharp_publicized">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\publicized_assemblies\Assembly-CSharp_publicized.dll</HintPath>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldManaged)/Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.InputModule.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.InputModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(RimWorldManaged)/UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
     </Reference>
   </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <!--
-    NOTE: This mod transpiles game IL and is only validated against RimWorld 1.6, so the copy
-    target points at v1.6/Assemblies. The Reference HintPath entries above still use the original
-    author's Windows-absolute paths (C:\...\publicized_assemblies\Assembly-CSharp_publicized.dll,
-    etc). Point them at your own machine's 1.6 publicized assembly before building on Windows.
-  -->
-  <PropertyGroup>
-    <PostBuildEvent>xcopy "$(TargetDir)$(ProjectName).dll" "D:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\TradeUI\v1.6\Assemblies" /Y</PostBuildEvent>
-  </PropertyGroup>
+
+  <!-- Drop the built DLL straight into the loadable mod folder for 1.6 (cross-platform copy) -->
+  <Target Name="CopyToModFolder" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(MSBuildProjectDirectory)/../../TradeUI/v1.6/Assemblies" />
+    <Message Importance="high" Text="Copied $(TargetFileName) -> TradeUI/v1.6/Assemblies/" />
+  </Target>
+
 </Project>
