@@ -459,6 +459,42 @@ namespace TradeUI
                     + TradeUIParameters.maxExtraIconWidth;
             }
 
+            public const float COL_HEADER_HEIGHT = 20f;
+
+            // UX-B: pinned column headers aligned to the shared column model. Kept outside the scroll
+            // views so they stay put while rows scroll. rowRect is one pane's header strip.
+            static void DrawColumnHeaders(Rect rowRect)
+            {
+                TextAnchor prevAnchor = Text.Anchor;
+                GameFont prevFont = Text.Font;
+                Color prevColor = GUI.color;
+                bool prevWrap = Text.WordWrap;
+
+                Text.Font = GameFont.Tiny;
+                Text.WordWrap = false;
+                GUI.color = new Color(0.8f, 0.8f, 0.8f);
+
+                float x = rowRect.width;
+                x -= TRANSFER_WIDTH;
+                DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, TRANSFER_WIDTH, rowRect.height), "Trade", TextAnchor.MiddleCenter);
+                x -= COST_WIDTH;
+                DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, COST_WIDTH, rowRect.height), "Price", TextAnchor.MiddleRight);
+                x -= OWNED_AMOUNT_WIDTH;
+                DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, OWNED_AMOUNT_WIDTH, rowRect.height), "Owned", TextAnchor.MiddleRight);
+                DrawHeaderCell(new Rect(rowRect.x + ICON_INFO_WIDTH, rowRect.y, Mathf.Max(0f, x - ICON_INFO_WIDTH), rowRect.height), "Item", TextAnchor.MiddleLeft);
+
+                Text.Anchor = prevAnchor;
+                Text.Font = prevFont;
+                GUI.color = prevColor;
+                Text.WordWrap = prevWrap;
+            }
+
+            static void DrawHeaderCell(Rect rect, string label, TextAnchor anchor)
+            {
+                Text.Anchor = anchor;
+                Widgets.Label(rect, label);
+            }
+
             static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance)
             {
                 // Draw headers
@@ -535,8 +571,12 @@ namespace TradeUI
 
                 // Draw left view
                 Text.Font = GameFont.Small;
+                // UX-B: draw the pinned column headers just above the scroll view, then start the
+                // scroll rect below them.
+                Rect leftColHeaderRect = new Rect(0, mainRect.y + leftHeaderRect.height, halfWidth - 16f, COL_HEADER_HEIGHT);
+                DrawColumnHeaders(leftColHeaderRect);
                 // Start scroll rect down a bit vertically
-                Rect leftScrollRect = new Rect(0, mainRect.y + leftHeaderRect.height, halfWidth, mainRect.height - leftHeaderRect.height);
+                Rect leftScrollRect = new Rect(0, mainRect.y + leftHeaderRect.height + COL_HEADER_HEIGHT, halfWidth, mainRect.height - leftHeaderRect.height - COL_HEADER_HEIGHT);
                 // Change 3: make the content width independent of the pane width so a horizontal
                 // scrollbar appears (and the columns keep their fixed sizes) when the pane is narrow.
                 float minRowWidth = MinRowWidth();
@@ -570,7 +610,10 @@ namespace TradeUI
                 Widgets.EndScrollView();
 
                 // Draw right view
-                Rect rightScrollRect = new Rect(halfWidth, mainRect.y + rightHeaderRect.height, halfWidth, mainRect.height - rightHeaderRect.height);
+                // UX-B: pinned column headers for the trader pane.
+                Rect rightColHeaderRect = new Rect(halfWidth, mainRect.y + rightHeaderRect.height, halfWidth - 16f, COL_HEADER_HEIGHT);
+                DrawColumnHeaders(rightColHeaderRect);
+                Rect rightScrollRect = new Rect(halfWidth, mainRect.y + rightHeaderRect.height + COL_HEADER_HEIGHT, halfWidth, mainRect.height - rightHeaderRect.height - COL_HEADER_HEIGHT);
                 // Change 3: same as the left pane - independent content width drives the horizontal bar.
                 float rightContentWidth = Mathf.Max(rightScrollRect.width - 16f, minRowWidth);
                 Rect rightInnerRect = new Rect(0, 0, rightContentWidth, rightHeight);
