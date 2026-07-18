@@ -16,6 +16,9 @@ namespace TradeUI
 
         private static TradeUIParameters m_instance;
 
+        // Client-local persisted window size (Change 1). Pure UI state, never MP-synced.
+        public static Vector2 windowSize = Vector2.zero;
+
         public void Reset()
         {
             scrollPositionLeft = Vector2.zero;

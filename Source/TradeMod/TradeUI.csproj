@@ -69,7 +69,13 @@
     </Reference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!--
+    NOTE: This mod transpiles game IL and is only validated against RimWorld 1.6, so the copy
+    target points at v1.6/Assemblies. The Reference HintPath entries above still use the original
+    author's Windows-absolute paths (C:\...\publicized_assemblies\Assembly-CSharp_publicized.dll,
+    etc). Point them at your own machine's 1.6 publicized assembly before building on Windows.
+  -->
   <PropertyGroup>
-    <PostBuildEvent>xcopy "$(TargetDir)$(ProjectName).dll" "D:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\TradeUI\v1.3\Assemblies" /Y</PostBuildEvent>
+    <PostBuildEvent>xcopy "$(TargetDir)$(ProjectName).dll" "D:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\TradeUI\v1.6\Assemblies" /Y</PostBuildEvent>
   </PropertyGroup>
 </Project>

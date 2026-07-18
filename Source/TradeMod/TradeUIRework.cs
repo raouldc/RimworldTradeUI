@@ -77,6 +77,16 @@ namespace TradeUI
         static void MyDoWindowContents(Dialog_Trade __instance, ref Rect inRect)
         {
             //Debug.LogError($"It works! Rect {inRect.ToString()}");
+
+            // Change 1: capture the current window size each frame so it persists across opens.
+            // Guard against zero: in MP the inner dialog is created via NewObjectNoCtor and is never
+            // stack-added, so its windowRect stays (0,0). The guard stops MP from zeroing the shared
+            // static; Change 4 additionally reads the real TradingWindow's rect under MP.
+            if (__instance.windowRect.width > 1f && __instance.windowRect.height > 1f)
+            {
+                TradeUIParameters.windowSize = __instance.windowRect.size;
+            }
+
             // Calculate space for left/right rects
             const float FOOTER_HEIGHT = 110;
             const float BUTTON_HEIGHT = 55;
@@ -1119,8 +1129,11 @@ namespace TradeUI
         [HarmonyPatch(typeof(RimWorld.Dialog_Trade), "PostOpen")]
         static class Harmony_DialogTrade_PostOpen
         {
-            static void Prefix()
+            static void Prefix(Dialog_Trade __instance)
             {
+                // Change 1: allow the user to drag-resize the trade window. Window.resizeable
+                // draws/handles the resize grip via WindowResizer without needing draggable.
+                __instance.resizeable = true;
                 TradeUIParameters.Singleton.Reset();
             }
         }
@@ -1130,8 +1143,22 @@ namespace TradeUI
         {
             static void Postfix(ref Vector2 __result)
             {
-                // Make screen wider (without being bigger than the user's screen)
-                __result.x = Mathf.Min(UI.screenWidth, __result.x + 360);
+                // Change 1: restore the last client-local size if we have one, otherwise apply the
+                // legacy +360 default. One branch or the other - never +360 on top of a stored size.
+                Vector2 size;
+                if (TradeUIParameters.windowSize != Vector2.zero)
+                {
+                    size = TradeUIParameters.windowSize;
+                }
+                else
+                {
+                    // Make screen wider (without being bigger than the user's screen)
+                    size = new Vector2(__result.x + 360f, __result.y);
+                }
+                // Clamp to a sane minimum and to the current screen (resolution may have changed).
+                size.x = Mathf.Clamp(size.x, 550f, UI.screenWidth);
+                size.y = Mathf.Clamp(size.y, 500f, UI.screenHeight);
+                __result = size;
             }
         }
 
