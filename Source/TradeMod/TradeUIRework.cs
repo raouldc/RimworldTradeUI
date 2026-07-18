@@ -490,6 +490,12 @@ namespace TradeUI
                 float x = rowRect.width;
                 x -= TRANSFER_WIDTH;
                 DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, TRANSFER_WIDTH, rowRect.height), "Trade", TextAnchor.MiddleCenter);
+                // Match the row layout: in SP the bulk buttons sit between Trade and Price, so reserve
+                // the same gap here or the Price/Owned headers drift right of their cells.
+                if (Find.WindowStack.IsOpen<Dialog_Trade>())
+                {
+                    x -= BULK_WIDTH;
+                }
                 x -= COST_WIDTH;
                 DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, COST_WIDTH, rowRect.height), "Price", TextAnchor.MiddleRight);
                 x -= OWNED_AMOUNT_WIDTH;
