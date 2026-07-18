@@ -485,7 +485,11 @@ namespace TradeUI
                 Text.Font = GameFont.Small;
                 // Start scroll rect down a bit vertically
                 Rect leftScrollRect = new Rect(0, mainRect.y + leftHeaderRect.height, halfWidth, mainRect.height - leftHeaderRect.height);
-                Rect leftInsideScrollRect = new Rect(0, 0, (leftScrollRect.width - 16f), leftHeight);
+                // Change 3: make the content width independent of the pane width so a horizontal
+                // scrollbar appears (and the columns keep their fixed sizes) when the pane is narrow.
+                float minRowWidth = MinRowWidth();
+                float leftContentWidth = Mathf.Max(leftScrollRect.width - 16f, minRowWidth);
+                Rect leftInsideScrollRect = new Rect(0, 0, leftContentWidth, leftHeight);
                 Widgets.BeginScrollView(leftScrollRect, ref TradeUIParameters.Singleton.scrollPositionLeft, leftInsideScrollRect, true);
                 float num = 6f;
                 float num2 = TradeUIParameters.Singleton.scrollPositionLeft.y - 30f;
@@ -515,7 +519,9 @@ namespace TradeUI
 
                 // Draw right view
                 Rect rightScrollRect = new Rect(halfWidth, mainRect.y + rightHeaderRect.height, halfWidth, mainRect.height - rightHeaderRect.height);
-                Rect rightInnerRect = new Rect(0, 0, (rightScrollRect.width - 16f), rightHeight);
+                // Change 3: same as the left pane - independent content width drives the horizontal bar.
+                float rightContentWidth = Mathf.Max(rightScrollRect.width - 16f, minRowWidth);
+                Rect rightInnerRect = new Rect(0, 0, rightContentWidth, rightHeight);
                 Widgets.BeginScrollView(rightScrollRect, ref TradeUIParameters.Singleton.scrollPositionRight, rightInnerRect, true);
                 num = 6f;
                 num2 = TradeUIParameters.Singleton.scrollPositionRight.y - 30f;
