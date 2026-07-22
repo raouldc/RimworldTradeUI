@@ -670,6 +670,11 @@ namespace TradeUI
                 // the scroll height matches the (fewer) rows actually drawn.
                 bool filterInDeal = TradeUIParameters.Singleton.filterInDealOnly;
                 bool hideUnwilling = TradeUIParameters.Singleton.hideUnwillingToBuy;
+                // Feature 2: in gift mode the trade is one-sided (colony gives), so suppress the trader
+                // pane and let the colony pane span the full window. The scroll-height loop below still
+                // stays in lockstep because it counts the same rows that get drawn.
+                bool giftMode = TradeSession.giftMode;
+                float leftPaneWidth = giftMode ? mainRect.width : halfWidth;
                 float leftHeight = 6f;
                 float rightHeight = 6f;
                 foreach (var entry in ___cachedTradeables)
@@ -686,10 +691,10 @@ namespace TradeUI
                 Text.Font = GameFont.Small;
                 // UX-B: draw the pinned column headers just above the scroll view, then start the
                 // scroll rect below them.
-                Rect leftColHeaderRect = new Rect(0, mainRect.y + leftHeaderRect.height, halfWidth - 16f, COL_HEADER_HEIGHT);
+                Rect leftColHeaderRect = new Rect(0, mainRect.y + leftHeaderRect.height, leftPaneWidth - 16f, COL_HEADER_HEIGHT);
                 DrawColumnHeaders(leftColHeaderRect);
                 // Start scroll rect down a bit vertically
-                Rect leftScrollRect = new Rect(0, mainRect.y + leftHeaderRect.height + COL_HEADER_HEIGHT, halfWidth, mainRect.height - leftHeaderRect.height - COL_HEADER_HEIGHT);
+                Rect leftScrollRect = new Rect(0, mainRect.y + leftHeaderRect.height + COL_HEADER_HEIGHT, leftPaneWidth, mainRect.height - leftHeaderRect.height - COL_HEADER_HEIGHT);
                 // Change 3: make the content width independent of the pane width so a horizontal
                 // scrollbar appears (and the columns keep their fixed sizes) when the pane is narrow.
                 float minRowWidth = MinRowWidth();
@@ -728,7 +733,9 @@ namespace TradeUI
                 }
                 Widgets.EndScrollView();
 
-                // Draw right view
+                // Draw right view (trader pane) - suppressed entirely in gift mode.
+                if (!giftMode)
+                {
                 // UX-B: pinned column headers for the trader pane.
                 Rect rightColHeaderRect = new Rect(halfWidth, mainRect.y + rightHeaderRect.height, halfWidth - 16f, COL_HEADER_HEIGHT);
                 DrawColumnHeaders(rightColHeaderRect);
@@ -766,6 +773,7 @@ namespace TradeUI
                     num4++;
                 }
                 Widgets.EndScrollView();
+                } // end if (!giftMode) right pane
                 return false; // Skip vanilla behavior
             }
 
@@ -1411,6 +1419,38 @@ namespace TradeUI
                     }
                 }
                 return MyDraggableResult.Idle;
+            }
+        }
+
+        // Feature 2 (gift fix): vanilla Dialog_Trade.CacheTradeables drops colony items the trader
+        // "won't trade" for trader kinds with hideThingsNotWillingToTrade - which is exactly the
+        // low-value junk you would gift for goodwill. There is no gift-mode branch in vanilla, so in
+        // gift mode those rows silently vanish. Rebuild the cache in gift mode to include EVERY
+        // non-currency colony-held tradeable (matching the active search), using vanilla's own sorter
+        // chain so ordering is preserved. Trader-won't-trade items sort last exactly as vanilla intends.
+        [HarmonyPatch(typeof(RimWorld.Dialog_Trade), "CacheTradeables")]
+        static class Harmony_DialogTrade_CacheTradeables
+        {
+            static void Postfix(ref List<Tradeable> ___cachedTradeables, TransferableSorterDef ___sorter1, TransferableSorterDef ___sorter2, QuickSearchWidget ___quickSearchWidget)
+            {
+                if (!TradeSession.giftMode)
+                {
+                    return;
+                }
+                // One-sided give: only colony-held items are giftable. Mirror vanilla's ordering chain.
+                ___cachedTradeables = TradeSession.deal.AllTradeables
+                    .Where(tr => !tr.IsCurrency
+                        && tr.CountHeldBy(Transactor.Colony) > 0
+                        && ___quickSearchWidget.filter.Matches(tr.Label))
+                    .OrderByDescending(tr => (!tr.TraderWillTrade) ? -1 : 0)
+                    .ThenBy(tr => tr, ___sorter1.Comparer)
+                    .ThenBy(tr => tr, ___sorter2.Comparer)
+                    .ThenBy(tr => TransferableUIUtility.DefaultListOrderPriority(tr))
+                    .ThenBy(tr => tr.ThingDef.label)
+                    .ThenBy(tr => tr.AnyThing.TryGetQuality(out QualityCategory qc) ? (int)qc : -1)
+                    .ThenBy(tr => tr.AnyThing.HitPoints)
+                    .ToList();
+                ___quickSearchWidget.noResultsMatched = !___cachedTradeables.Any();
             }
         }
 
