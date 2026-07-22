@@ -173,20 +173,55 @@ namespace TradeUI
                 Dialog_Trade.AcceptButtonSize.x,
                 Dialog_Trade.AcceptButtonSize.y);
 
-            // UX-D: live net-silver running total next to the Accept/Reset cluster. Red when the
-            // colony can't afford the deal (same check the Accept path uses, surfaced continuously).
-            if (__instance.cachedCurrencyTradeable != null)
+            // UX-D / Feature 4: live net-silver running total next to the Accept/Reset cluster. The sign
+            // is spelled out ("You pay" / "You receive") and an unaffordable deal shows a word cue
+            // ("Short N silver") not just red, for colourblind safety. Skipped in gift mode (no silver).
+            if (__instance.cachedCurrencyTradeable != null && !TradeSession.giftMode)
             {
-                int silverDelta = __instance.cachedCurrencyTradeable.CountToTransfer;
-                bool canAfford = TradeSession.deal.DoesTraderHaveEnoughSilver();
+                Tradeable cur = __instance.cachedCurrencyTradeable;
+                // + = colony receives silver (net sell), - = colony pays (net buy).
+                int silverDelta = cur.CountToTransfer;
+                int colonyPost = cur.CountPostDealFor(Transactor.Colony);
+                int traderPost = cur.CountPostDealFor(Transactor.Trader);
+                bool colonyShort = colonyPost < 0;
+                bool traderShort = traderPost < 0;
+
+                string totalMsg;
+                Color totalColor;
+                if (colonyShort)
+                {
+                    totalMsg = "! Short " + (-colonyPost) + " silver";
+                    totalColor = new Color(1f, 0.4f, 0.4f);
+                }
+                else if (traderShort)
+                {
+                    totalMsg = "! Trader short " + (-traderPost) + " silver";
+                    totalColor = new Color(1f, 0.4f, 0.4f);
+                }
+                else if (silverDelta > 0)
+                {
+                    totalMsg = "You receive " + silverDelta + " silver";
+                    totalColor = new Color(0.7f, 0.95f, 0.7f);
+                }
+                else if (silverDelta < 0)
+                {
+                    totalMsg = "You pay " + (-silverDelta) + " silver";
+                    totalColor = Color.white;
+                }
+                else
+                {
+                    totalMsg = "Even trade";
+                    totalColor = new Color(0.8f, 0.8f, 0.8f);
+                }
+
                 float resetLeft = buttonsRect.x - 10f - Dialog_Trade.OtherBottomButtonSize.x;
                 const float totalX = 420f; // leave room for the vanilla toggle + filter dropdown at the far left
                 Rect totalRect = new Rect(totalX, buttonsRect.y, Mathf.Max(0f, resetLeft - 10f - totalX), Dialog_Trade.OtherBottomButtonSize.y);
                 TextAnchor prevTotalAnchor = Text.Anchor;
                 Color prevTotalColor = GUI.color;
                 Text.Anchor = TextAnchor.MiddleRight;
-                GUI.color = canAfford ? Color.white : new Color(1f, 0.4f, 0.4f);
-                Widgets.Label(totalRect, "Silver: " + silverDelta.ToStringWithSign());
+                GUI.color = totalColor;
+                Widgets.Label(totalRect, totalMsg);
                 Text.Anchor = prevTotalAnchor;
                 GUI.color = prevTotalColor;
             }
@@ -256,7 +291,8 @@ namespace TradeUI
                 // UX-E: Accept/Offer button = green.
                 Color prevAcceptColor = GUI.color;
                 GUI.color = new Color(0.55f, 0.9f, 0.55f);
-                bool acceptClicked = Widgets.ButtonText(buttonsRect, TradeSession.giftMode ? ("OfferGifts".Translate() + " (" + FactionGiftUtility.GetGoodwillChange(TradeSession.deal.AllTradeables, TradeSession.trader.Faction).ToStringWithSign() + ")") : "AcceptButton".Translate(), true, true, true);
+                // Feature 4: check glyph so Accept is not identified by colour alone.
+                bool acceptClicked = Widgets.ButtonText(buttonsRect, "✓ " + (TradeSession.giftMode ? ("OfferGifts".Translate() + " (" + FactionGiftUtility.GetGoodwillChange(TradeSession.deal.AllTradeables, TradeSession.trader.Faction).ToStringWithSign() + ")") : "AcceptButton".Translate()), true, true, true);
                 GUI.color = prevAcceptColor;
                 if (acceptClicked)
                 {
@@ -304,7 +340,8 @@ namespace TradeUI
             // UX-E: Cancel button = red (deliberate, was only incidentally reddish before).
             Color prevCancelColor = GUI.color;
             GUI.color = new Color(0.9f, 0.5f, 0.5f);
-            bool cancelClicked = Widgets.ButtonText(new Rect(buttonsRect.xMax + 10f, buttonsRect.y, Dialog_Trade.OtherBottomButtonSize.x, Dialog_Trade.OtherBottomButtonSize.y), "CancelButton".Translate(), true, true, true);
+            // Feature 4: cross glyph so Cancel is not identified by colour alone.
+            bool cancelClicked = Widgets.ButtonText(new Rect(buttonsRect.xMax + 10f, buttonsRect.y, Dialog_Trade.OtherBottomButtonSize.x, Dialog_Trade.OtherBottomButtonSize.y), "✕ " + "CancelButton".Translate(), true, true, true);
             GUI.color = prevCancelColor;
             if (cancelClicked)
             {
@@ -645,6 +682,39 @@ namespace TradeUI
                 Widgets.Label(rect, label);
             }
 
+            // Feature 4: centered muted message when a pane draws zero rows, so an empty pane never
+            // reads as "broken". When a display filter caused it, offer a one-click reset.
+            static void DrawEmptyPaneState(Rect area, string message, bool showReset)
+            {
+                TextAnchor prevAnchor = Text.Anchor;
+                GameFont prevFont = Text.Font;
+                Color prevColor = GUI.color;
+                bool prevWrap = Text.WordWrap;
+
+                Text.Font = GameFont.Small;
+                Text.WordWrap = true;
+                Text.Anchor = TextAnchor.MiddleCenter;
+                GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                Rect msgRect = new Rect(area.x + 10f, area.y + area.height / 2f - 40f, Mathf.Max(0f, area.width - 36f), 34f);
+                Widgets.Label(msgRect, message);
+                if (showReset)
+                {
+                    Rect btnRect = new Rect(msgRect.x + msgRect.width / 2f - 70f, msgRect.yMax + 6f, 140f, 26f);
+                    GUI.color = Color.white;
+                    if (Widgets.ButtonText(btnRect, "Show all items", true, true, true))
+                    {
+                        TradeUIParameters.Singleton.filterInDealOnly = false;
+                        TradeUIParameters.Singleton.hideUnwillingToBuy = false;
+                        Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
+                    }
+                }
+
+                Text.Anchor = prevAnchor;
+                Text.Font = prevFont;
+                GUI.color = prevColor;
+                Text.WordWrap = prevWrap;
+            }
+
             // UX-A: "All" sets the max transferable quantity (the reliable easy win). "$" tries to set
             // the quantity that spends/earns as close to all available silver as possible.
             static void DrawBulkButtons(Rect rect, Tradeable trad, bool isOurs)
@@ -871,14 +941,24 @@ namespace TradeUI
                 float leftPaneWidth = giftMode ? mainRect.width : halfWidth;
                 float leftHeight = 6f;
                 float rightHeight = 6f;
+                int leftRowCount = 0;
+                int rightRowCount = 0;
                 foreach (var entry in ___cachedTradeables)
                 {
                     bool inDeal = !filterInDeal || entry.CountToTransfer != 0;
                     bool willing = !hideUnwilling || entry.TraderWillTrade;
                     if (inDeal && willing && entry.thingsColony != null && entry.thingsColony.Count > 0)
+                    {
                         leftHeight += 30f;
-                    if (inDeal && willing && entry.thingsTrader != null && entry.thingsTrader.Count > 0)
+                        leftRowCount++;
+                    }
+                    // Feature 4: match the right pane's actual draw filter (it does NOT apply
+                    // hideUnwilling) so the scroll height stays in lockstep with the rows drawn.
+                    if (inDeal && entry.thingsTrader != null && entry.thingsTrader.Count > 0)
+                    {
                         rightHeight += 30f;
+                        rightRowCount++;
+                    }
                 }
 
                 // Draw left view
@@ -926,6 +1006,12 @@ namespace TradeUI
                     num4++;
                 }
                 Widgets.EndScrollView();
+                if (leftRowCount == 0)
+                {
+                    DrawEmptyPaneState(leftScrollRect,
+                        (filterInDeal || hideUnwilling) ? "No items match the current filter." : "You have nothing to trade.",
+                        filterInDeal || hideUnwilling);
+                }
 
                 // Draw right view (trader pane) - suppressed entirely in gift mode.
                 if (!giftMode)
@@ -967,6 +1053,12 @@ namespace TradeUI
                     num4++;
                 }
                 Widgets.EndScrollView();
+                if (rightRowCount == 0)
+                {
+                    DrawEmptyPaneState(rightScrollRect,
+                        filterInDeal ? "No items match the current filter." : "This trader has nothing to sell.",
+                        filterInDeal);
+                }
                 } // end if (!giftMode) right pane
                 return false; // Skip vanilla behavior
             }
@@ -1088,7 +1180,35 @@ namespace TradeUI
                     xPosition -= COST_WIDTH;
                     Rect rect6 = new Rect(xPosition, 0f, COST_WIDTH, mainRect.height);
                     Text.Anchor = TextAnchor.MiddleRight;
-                    RimWorld.TradeUI.DrawPrice(rect6, trad, isOurs ? TradeAction.PlayerSells : TradeAction.PlayerBuys);
+                    TradeAction priceAction = isOurs ? TradeAction.PlayerSells : TradeAction.PlayerBuys;
+                    // Feature 4: when this row is part of the deal, show its signed LINE TOTAL
+                    // (qty x unit price) under the unit price so the player never has to multiply.
+                    // Green + "+N" when the colony receives silver (selling), amber "-N" when it pays.
+                    if (trad.CountToTransfer != 0)
+                    {
+                        Rect unitPriceRect = new Rect(rect6.x, 0f, rect6.width, mainRect.height * 0.58f);
+                        RimWorld.TradeUI.DrawPrice(unitPriceRect, trad, priceAction);
+                        TradeAction dealAction = trad.ActionToDo != TradeAction.None ? trad.ActionToDo : priceAction;
+                        int qty = Mathf.Abs(trad.CountToTransfer);
+                        int lineTotal = Mathf.RoundToInt(qty * trad.GetPriceFor(dealAction));
+                        int signedTotal = (dealAction == TradeAction.PlayerSells) ? lineTotal : -lineTotal;
+                        GameFont prevLineFont = Text.Font;
+                        Color prevLineColor = GUI.color;
+                        Text.Font = GameFont.Tiny;
+                        GUI.color = (dealAction == TradeAction.PlayerSells)
+                            ? new Color(0.6f, 0.9f, 0.6f)
+                            : new Color(0.95f, 0.85f, 0.55f);
+                        Text.Anchor = TextAnchor.MiddleRight;
+                        Rect lineTotalRect = new Rect(rect6.x - 10f, mainRect.height * 0.5f, rect6.width + 10f, mainRect.height * 0.5f);
+                        Widgets.Label(lineTotalRect, "x" + qty + " " + signedTotal.ToStringWithSign());
+                        Text.Font = prevLineFont;
+                        GUI.color = prevLineColor;
+                        Text.Anchor = TextAnchor.MiddleRight;
+                    }
+                    else
+                    {
+                        RimWorld.TradeUI.DrawPrice(rect6, trad, priceAction);
+                    }
 
                     // draw owned amount
                     xPosition -= OWNED_AMOUNT_WIDTH;
