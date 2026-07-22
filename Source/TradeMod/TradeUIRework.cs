@@ -123,6 +123,30 @@ namespace TradeUI
             catch (Exception) { return -1f; }
         }
 
+        // Feature 4: access the dialog's private quick-search widget. CacheTradeables already filters
+        // cachedTradeables by this filter, so setting its text and re-caching filters BOTH panes (and
+        // the gift-mode postfix) at once, composing with the in-deal / hide-unwilling toggles.
+        static AccessTools.FieldRef<Dialog_Trade, QuickSearchWidget> s_searchWidgetRef;
+        internal static QuickSearchWidget GetSearchWidget(Dialog_Trade dlg)
+        {
+            if (dlg == null)
+            {
+                return null;
+            }
+            try
+            {
+                if (s_searchWidgetRef == null)
+                {
+                    s_searchWidgetRef = AccessTools.FieldRefAccess<Dialog_Trade, QuickSearchWidget>("quickSearchWidget");
+                }
+                return s_searchWidgetRef(dlg);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         static void MyDoWindowContents(Dialog_Trade __instance, ref Rect inRect)
         {
             //Debug.LogError($"It works! Rect {inRect.ToString()}");
@@ -139,6 +163,22 @@ namespace TradeUI
             else if (__instance.windowRect.width > 1f && __instance.windowRect.height > 1f)
             {
                 TradeUIParameters.windowSize = __instance.windowRect.size;
+            }
+
+            // Feature 4: live text search in the sorter strip (right side, next to vanilla's sorters).
+            // Filters both panes via vanilla's own CacheTradeables filter path.
+            QuickSearchWidget searchWidget = GetSearchWidget(__instance);
+            if (searchWidget != null)
+            {
+                // Vanilla's sorter strip occupies x[0,350]; keep the search box right of it so it never
+                // overlaps at narrow widths. Hidden entirely when there isn't room.
+                const float sortersRight = 356f;
+                float searchW = Mathf.Min(260f, inRect.width - sortersRight - 8f);
+                if (searchW >= 90f)
+                {
+                    Rect searchRect = new Rect(inRect.width - searchW - 4f, inRect.yMin + 1f, searchW, QuickSearchWidget.WidgetHeight);
+                    searchWidget.OnGUI(searchRect, () => __instance.CacheTradeables(), () => __instance.CacheTradeables());
+                }
             }
 
             // Calculate space for left/right rects
@@ -621,7 +661,7 @@ namespace TradeUI
             public const float OWNED_AMOUNT_WIDTH = 75f;
             public const float ICON_INFO_WIDTH = 80f;   // icon (27) + info button + padding; name starts at x=80
             public const float NAME_MIN_WIDTH = 140f;    // minimum readable space reserved for the label
-            public const float BULK_WIDTH = 64f;         // UX-A: "All" + "$" bulk buttons (SP only)
+            public const float BULK_WIDTH = 132f;        // UX-A / Feature 4: Max + Fill $ + Clear chips (SP only)
             public const float WEIGHT_WIDTH = 70f;       // Feature 3: per-item weight column (caravan only)
 
             // Minimum content width a row needs so the right-anchored blocks always have room and the
@@ -634,7 +674,7 @@ namespace TradeUI
                     + weight + TradeUIParameters.maxExtraIconWidth;
             }
 
-            public const float COL_HEADER_HEIGHT = 20f;
+            public const float COL_HEADER_HEIGHT = 26f; // Feature 4: taller strip for the Small header font
 
             // UX-B: pinned column headers aligned to the shared column model. Kept outside the scroll
             // views so they stay put while rows scroll. rowRect is one pane's header strip.
@@ -645,9 +685,10 @@ namespace TradeUI
                 Color prevColor = GUI.color;
                 bool prevWrap = Text.WordWrap;
 
-                Text.Font = GameFont.Tiny;
+                // Feature 4: bump the header font Tiny -> Small for legibility.
+                Text.Font = GameFont.Small;
                 Text.WordWrap = false;
-                GUI.color = new Color(0.8f, 0.8f, 0.8f);
+                GUI.color = new Color(0.82f, 0.82f, 0.82f);
 
                 float x = rowRect.width;
                 x -= TRANSFER_WIDTH;
@@ -669,6 +710,10 @@ namespace TradeUI
                     DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, WEIGHT_WIDTH, rowRect.height), "Weight", TextAnchor.MiddleRight);
                 }
                 DrawHeaderCell(new Rect(rowRect.x + ICON_INFO_WIDTH, rowRect.y, Mathf.Max(0f, x - ICON_INFO_WIDTH), rowRect.height), "Item", TextAnchor.MiddleLeft);
+
+                // Feature 4: faint divider under the header strip.
+                GUI.color = new Color(1f, 1f, 1f, 0.28f);
+                Widgets.DrawLineHorizontal(rowRect.x, rowRect.yMax - 1f, rowRect.width);
 
                 Text.Anchor = prevAnchor;
                 Text.Font = prevFont;
@@ -715,30 +760,41 @@ namespace TradeUI
                 Text.WordWrap = prevWrap;
             }
 
-            // UX-A: "All" sets the max transferable quantity (the reliable easy win). "$" tries to set
-            // the quantity that spends/earns as close to all available silver as possible.
+            // UX-A / Feature 4: consolidated, visible count chips. "Max" sets the maximum transferable
+            // quantity, "Fill $" sets as much as remaining silver allows, and "Clear" resets the row to
+            // zero (previously right-click-only and undiscoverable). Right-click on the arrows still
+            // works as an accelerator for max/none.
             static void DrawBulkButtons(Rect rect, Tradeable trad, bool isOurs)
             {
                 float h = Mathf.Min(rect.height - 6f, 22f);
                 float y = rect.y + (rect.height - h) / 2f;
-                Rect allRect = new Rect(rect.x + 2f, y, 28f, h);
-                Rect maxRect = new Rect(allRect.xMax + 2f, y, 28f, h);
+                float chipW = (rect.width - 8f) / 3f;
+                Rect maxRect = new Rect(rect.x + 2f, y, chipW, h);
+                Rect fillRect = new Rect(maxRect.xMax + 1f, y, chipW, h);
+                Rect clearRect = new Rect(fillRect.xMax + 1f, y, chipW, h);
 
                 GameFont prevFont = Text.Font;
                 Text.Font = GameFont.Tiny;
-                if (Widgets.ButtonText(allRect, "All", true, true, true))
+                if (Widgets.ButtonText(maxRect, "Max", true, true, true))
                 {
                     trad.AdjustTo(trad.GetMaximumToTransfer());
                     Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
                 }
-                TooltipHandler.TipRegion(allRect, new TipSignal("Sell/buy the maximum available quantity of this item."));
+                TooltipHandler.TipRegion(maxRect, new TipSignal("Sell/buy the maximum available quantity of this item."));
 
-                if (Widgets.ButtonText(maxRect, "$", true, true, true))
+                if (Widgets.ButtonText(fillRect, "Fill $", true, true, true))
                 {
                     AdjustToMaxMoney(trad, isOurs);
                     Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
                 }
-                TooltipHandler.TipRegion(maxRect, new TipSignal("Set the quantity that spends (or earns) as close to all available silver as possible."));
+                TooltipHandler.TipRegion(fillRect, new TipSignal("Set the quantity that spends (or earns) as close to the remaining silver as possible."));
+
+                if (Widgets.ButtonText(clearRect, "Clear", true, true, true))
+                {
+                    trad.AdjustTo(0);
+                    Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_Low, null);
+                }
+                TooltipHandler.TipRegion(clearRect, new TipSignal("Reset this item's traded amount to zero."));
                 Text.Font = prevFont;
             }
 
@@ -856,7 +912,7 @@ namespace TradeUI
                 Widgets.Label(rect, label);
             }
 
-            static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance)
+            static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance, QuickSearchWidget ___quickSearchWidget)
             {
                 // Feature 1: bail to vanilla rendering when the toggle is on. Draw a minimal header
                 // first (vanilla's own header was deleted by the DoWindowContents transpiler) then let
@@ -938,6 +994,7 @@ namespace TradeUI
                 // pane and let the colony pane span the full window. The scroll-height loop below still
                 // stays in lockstep because it counts the same rows that get drawn.
                 bool giftMode = TradeSession.giftMode;
+                bool searchActive = ___quickSearchWidget != null && ___quickSearchWidget.filter.Active;
                 float leftPaneWidth = giftMode ? mainRect.width : halfWidth;
                 float leftHeight = 6f;
                 float rightHeight = 6f;
@@ -1008,9 +1065,9 @@ namespace TradeUI
                 Widgets.EndScrollView();
                 if (leftRowCount == 0)
                 {
-                    DrawEmptyPaneState(leftScrollRect,
-                        (filterInDeal || hideUnwilling) ? "No items match the current filter." : "You have nothing to trade.",
-                        filterInDeal || hideUnwilling);
+                    string leftMsg = searchActive ? "No items match your search."
+                        : ((filterInDeal || hideUnwilling) ? "No items match the current filter." : "You have nothing to trade.");
+                    DrawEmptyPaneState(leftScrollRect, leftMsg, !searchActive && (filterInDeal || hideUnwilling));
                 }
 
                 // Draw right view (trader pane) - suppressed entirely in gift mode.
@@ -1055,9 +1112,9 @@ namespace TradeUI
                 Widgets.EndScrollView();
                 if (rightRowCount == 0)
                 {
-                    DrawEmptyPaneState(rightScrollRect,
-                        filterInDeal ? "No items match the current filter." : "This trader has nothing to sell.",
-                        filterInDeal);
+                    string rightMsg = searchActive ? "No items match your search."
+                        : (filterInDeal ? "No items match the current filter." : "This trader has nothing to sell.");
+                    DrawEmptyPaneState(rightScrollRect, rightMsg, !searchActive && filterInDeal);
                 }
                 } // end if (!giftMode) right pane
                 return false; // Skip vanilla behavior
