@@ -132,6 +132,54 @@ Layout notes:
   scroll content width) include it, and that it re-verifies no overlap/scroll regression at narrow
   widths — this is the same alignment trap already fixed once.
 
+## Feature 4 — UX fixes (already-shipped UI)
+
+From a senior UI/UX review of the current window. Prioritized. The first is a confirmed bug; the
+rest are improvements.
+
+### Must-fix
+- **`$` bulk button produces invalid deals (definite bug).** `AdjustToMaxMoney` computes affordable
+  units from *total* silver holdings and does not subtract silver already committed on other rows
+  (the code comments admit this). Click `$` on several rows and you overspend; the footer just goes
+  red with no indication of which row overshot. **Fix:** base `$` on *remaining* budget
+  = holdings − silver already committed across the deal, so sequential clicks stay solvent. If that's
+  not cheap, at minimum outline/flash the row(s) that pushed the deal negative.
+- **Line totals on deal rows.** Rows show only *unit* price, so the player mentally multiplies
+  qty × price everywhere. When `CountToTransfer != 0`, show the row's line value (e.g. `×12 = 660`)
+  in/next to the Price cell, signed by direction (receive vs pay). Biggest cognitive win.
+- **Non-color cues for the two critical signals (colorblind safety).** Affordability is red-vs-white
+  text only; Accept/Cancel are green/red only. Add a word/icon: e.g. "⚠ Short 340 silver" and a
+  check/✕ glyph on Accept/Cancel. Label the silver total's sign ("You pay" / "You receive") instead
+  of a bare `+N`.
+- **Empty-state messages.** When a filter (in-deal / hide-unwilling) or a won't-buy trader leaves a
+  pane with zero rows, it renders a blank void that reads as "broken." Draw a centered muted line,
+  e.g. "No items match — Show all" (clickable reset) or "This trader won't buy anything you have."
+
+### Should-improve
+- **Consolidate the count controls.** Today: `<`/`>`, numeric field, right-click-max, right-click-min,
+  plus visible "All" and "$". "Max" has two affordances while "clear to zero" is right-click-only
+  (hidden). Rationalize to a consistent `[ − ][ field ][ + ]` plus visible **Max** and **Clear**
+  chips; keep right-click as an accelerator, nothing important right-click-only. Rename "All"→"Max",
+  "$"→"Fill $".
+- **Consistent control layout across panes.** The colony pane is field-then-arrows, the trader pane
+  arrows-then-field (mirrored). Use the same physical order in both and let the existing directional
+  `TradeArrow` glyph carry "which way goods flow" — halves the scanning cost.
+- **Footer zones.** Group the crowded footer into **left = view** (filter/search/gift-mode/sellable),
+  **center = actions** (Reset · Accept · Cancel), **right = deal status** (silver total as the hero
+  number, stacked with the projected mass from Feature 3). Scales as weight + vanilla toggle land.
+- **Text search.** Large trader inventories (80-150+ types) have no name search (it was removed).
+  Add one live substring box in the sorter strip filtering both panes; composes with existing filters.
+- **Header legibility.** Column headers are `GameFont.Tiny` at gray 0.8; bump to `Small` (or Tiny at
+  near-white) with a faint divider under the header strip.
+
+### Nice-to-have
+- **Shared-item linking.** An item both sides hold appears as two rows for the same `Tradeable`;
+  badge them and light both when it's in the deal so it reads as one line.
+- **Reduce tooltip dependence** for core meaning (arrow direction, Owned) — keep tooltips for *why*
+  (price-improvement %, won't-trade reasons), not *what*.
+- **Respect UI scale.** Fixed 30px rows/`Small` font are tight at 1440p+; scale off `Prefs.UIScale`
+  or offer a compact/comfortable toggle.
+
 ---
 
 ## Shared / infra notes
@@ -144,10 +192,13 @@ Layout notes:
   item completeness, and caravan mass (current/projected/column/total) both under and over capacity.
 
 ## Suggested order
-1. Feature 2 (gift fix) — smallest, self-contained, high value.
-2. Feature 1 (vanilla toggle) — reuses existing prefixes + MP detection.
-3. Feature 3 (weight) — largest; do the header current/capacity first, then projected, then the
-   per-item column, then the planned-items total.
+1. Feature 4 "$" budget bug — it's a live correctness bug; fix first.
+2. Feature 2 (gift fix) — reproduce, then fix at `CacheTradeables`.
+3. Feature 1 (vanilla toggle) — reuses existing prefixes + MP detection.
+4. Feature 3 (weight) — verify vanilla bar first; read vanilla mass values; header, then per-item
+   column, then planned-items total.
+5. Remaining Feature 4 UX items (line totals, empty states, non-color cues, then the larger
+   control/footer/search reworks) as follow-ups.
 
 ## Open questions / confirm during build
 - Should the vanilla toggle show only in MP, or always? (Plan assumes MP-only; easy to change.)
