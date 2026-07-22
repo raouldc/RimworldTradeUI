@@ -1160,6 +1160,18 @@ namespace TradeUI
                 GUI.BeginGroup(mainRect);
                 float xPosition = mainRect.width;
 
+                // Feature 4 (shared-item linking): an item both sides hold is the SAME Tradeable drawn
+                // once per pane. Mark it with a small accent bar on the left edge so the two rows read as
+                // one line. (Deal highlighting already lights both panes since it keys off the shared
+                // Tradeable's CountToTransfer.)
+                if (trad.thingsColony != null && trad.thingsColony.Count > 0
+                    && trad.thingsTrader != null && trad.thingsTrader.Count > 0)
+                {
+                    Color prevAccent = GUI.color;
+                    Widgets.DrawBoxSolid(new Rect(0f, 2f, 3f, mainRect.height - 4f), new Color(0.45f, 0.65f, 1f, 0.9f));
+                    GUI.color = prevAccent;
+                }
+
                 // Vanilla draws this right-left for some reason
                 // our side, should read this
                 // LEFT  ---------- RIGHT
