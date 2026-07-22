@@ -556,9 +556,13 @@ namespace TradeUI
             }
 
             // Per-unit price math (does NOT rely on GetMaximumToTransfer, which bounds by stock, not by
-            // affordability). Single-pass estimate: affordable units = available silver / unit price,
-            // clamped to available stock. Note: this uses the currency's current silver holdings and
-            // does not subtract silver already committed on other rows - see the test checklist.
+            // affordability). Feature 4 bug fix: the budget is the *remaining* silver after the rest of
+            // the deal, not the colony's/trader's total holdings, so clicking "$" on several rows in a
+            // row stays solvent. We read the currency tradeable's CountPostDealFor(...) - vanilla keeps
+            // that in lockstep with the whole deal via UpdateCurrencyCount() (called every frame) - which
+            // already equals holdings minus silver committed across all rows. We add back THIS row's own
+            // currently-committed silver so re-clicking "$" on the same row is idempotent instead of
+            // shrinking it to zero. "$" is SP-only (gated by IsOpen<Dialog_Trade>() at the call site).
             static void AdjustToMaxMoney(Tradeable trad, bool isOurs)
             {
                 int max = trad.GetMaximumToTransfer();
@@ -582,8 +586,16 @@ namespace TradeUI
                     return;
                 }
                 // Buying spends the colony's silver; selling is bounded by the trader's silver.
-                int budget = isOurs ? currency.CountHeldBy(Transactor.Trader) : currency.CountHeldBy(Transactor.Colony);
-                int affordable = Mathf.FloorToInt(budget / unitPrice);
+                Transactor budgetHolder = isOurs ? Transactor.Trader : Transactor.Colony;
+                // Silver left for the buyer after everything currently in the deal.
+                float remaining = currency.CountPostDealFor(budgetHolder);
+                // Add back this row's own commitment so the button recomputes from a clean slate.
+                remaining += Mathf.Abs(trad.CountToTransfer) * unitPrice;
+                if (remaining < 0f)
+                {
+                    remaining = 0f;
+                }
+                int affordable = Mathf.FloorToInt(remaining / unitPrice);
                 int stock = Mathf.Abs(max);
                 int target = Mathf.Min(affordable, stock);
                 // Preserve the transfer direction that GetMaximumToTransfer encodes.
