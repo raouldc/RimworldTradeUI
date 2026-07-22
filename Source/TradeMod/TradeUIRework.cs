@@ -74,6 +74,55 @@ namespace TradeUI
             return list.AsEnumerable();
         }
 
+        // --- Feature 3: caravan weight helpers ---
+        // The whole mass UI is caravan-only. This predicate is deliberately independent of the SP/MP
+        // IsOpen<Dialog_Trade>() check used for the bulk-button gap, so the weight column stays aligned
+        // in MP caravan trades too.
+        internal static Caravan GetTradeCaravan()
+        {
+            Pawn negotiator = TradeSession.playerNegotiator;
+            return negotiator != null ? negotiator.GetCaravan() : null;
+        }
+
+        static bool s_massGettersChecked;
+        static MethodInfo s_massUsageGetter;   // Dialog_Trade.MassUsage (private) = projected AFTER trade
+        static MethodInfo s_massCapacityGetter; // Dialog_Trade.MassCapacity (private) = capacity after trade
+
+        static void EnsureMassGetters()
+        {
+            if (s_massGettersChecked)
+            {
+                return;
+            }
+            s_massGettersChecked = true;
+            s_massUsageGetter = AccessTools.PropertyGetter(typeof(Dialog_Trade), "MassUsage");
+            s_massCapacityGetter = AccessTools.PropertyGetter(typeof(Dialog_Trade), "MassCapacity");
+        }
+
+        // Projected-after-trade mass usage. Vanilla caches this behind dirty flags refreshed in
+        // CountToTransferChanged, so reading it is cheap and avoids a per-frame O(n) walk. Read-only.
+        internal static float DialogProjectedMassUsage(Dialog_Trade dlg)
+        {
+            EnsureMassGetters();
+            if (s_massUsageGetter == null || dlg == null)
+            {
+                return -1f;
+            }
+            try { return (float)s_massUsageGetter.Invoke(dlg, null); }
+            catch (Exception) { return -1f; }
+        }
+
+        internal static float DialogMassCapacity(Dialog_Trade dlg)
+        {
+            EnsureMassGetters();
+            if (s_massCapacityGetter == null || dlg == null)
+            {
+                return -1f;
+            }
+            try { return (float)s_massCapacityGetter.Invoke(dlg, null); }
+            catch (Exception) { return -1f; }
+        }
+
         static void MyDoWindowContents(Dialog_Trade __instance, ref Rect inRect)
         {
             //Debug.LogError($"It works! Rect {inRect.ToString()}");
@@ -95,7 +144,13 @@ namespace TradeUI
             // Calculate space for left/right rects
             const float FOOTER_HEIGHT = 110;
             const float BUTTON_HEIGHT = 55;
-            Rect twoColumnRect = new Rect(0f, inRect.yMin + TransferableUIUtility.SortersHeight, inRect.width, inRect.height - FOOTER_HEIGHT - TransferableUIUtility.SortersHeight);
+            const float MASS_LINE_HEIGHT = 24f;
+            // Feature 3: reserve a thin band above the currency row for the caravan mass readout so it
+            // never collides with the silver amounts. Only in caravan trades.
+            Caravan massCaravan = GetTradeCaravan();
+            float massBand = (massCaravan != null) ? MASS_LINE_HEIGHT : 0f;
+            float footerHeight = FOOTER_HEIGHT + massBand;
+            Rect twoColumnRect = new Rect(0f, inRect.yMin + TransferableUIUtility.SortersHeight, inRect.width, inRect.height - footerHeight - TransferableUIUtility.SortersHeight);
             //Debug.LogError(twoColumnRect.ToString());
             //Debug.LogError($"{twoColumnRect.width},{twoColumnRect.height} {twoColumnRect.xMin}:{twoColumnRect.xMax} {twoColumnRect.yMin}:{twoColumnRect.yMax}");
             // DRAW THE LEFT/RIGHT AREAS
@@ -134,6 +189,49 @@ namespace TradeUI
                 Widgets.Label(totalRect, "Silver: " + silverDelta.ToStringWithSign());
                 Text.Anchor = prevTotalAnchor;
                 GUI.color = prevTotalColor;
+            }
+
+            // Feature 3: caravan mass readout in the reserved band just above the currency row. Current
+            // + capacity come straight from the caravan (pre-trade); the projected-after-trade figure
+            // and after-trade capacity are read from vanilla's own cached values. Planned-items mass =
+            // projected - current. Colour is amber near / red over capacity, paired with a word so it is
+            // not colour-only. Read-only; safe under MP. (Vanilla's retained DrawCaravanInfo bar may
+            // also show usage/capacity - user to verify in-game whether it duplicates this readout.)
+            if (massCaravan != null)
+            {
+                float curUsage = massCaravan.MassUsage;
+                float curCapacity = massCaravan.MassCapacity;
+                float projUsage = DialogProjectedMassUsage(__instance);
+                float projCapacity = DialogMassCapacity(__instance);
+                if (projUsage < 0f) projUsage = curUsage;
+                if (projCapacity <= 0f) projCapacity = curCapacity;
+                float plannedDelta = projUsage - curUsage;
+
+                bool over = projUsage > projCapacity + 0.01f;
+                bool near = !over && projCapacity > 0f && projUsage > projCapacity * 0.9f;
+                string statusWord = over ? " (over!)" : (near ? " (near)" : "");
+                Color massColor = over ? new Color(1f, 0.4f, 0.4f) : (near ? new Color(1f, 0.8f, 0.3f) : Color.white);
+
+                TextAnchor prevMassAnchor = Text.Anchor;
+                GameFont prevMassFont = Text.Font;
+                Color prevMassColor = GUI.color;
+                bool prevMassWrap = Text.WordWrap;
+                Text.Font = GameFont.Tiny;
+                Text.WordWrap = false;
+                float massY = inRect.height - footerHeight + 3f;
+                Rect massLeftRect = new Rect(12f, massY, inRect.width / 2f - 12f, MASS_LINE_HEIGHT);
+                Rect massRightRect = new Rect(inRect.width / 2f, massY, inRect.width / 2f - 12f, MASS_LINE_HEIGHT);
+                GUI.color = Color.white;
+                Text.Anchor = TextAnchor.MiddleLeft;
+                Widgets.Label(massLeftRect, "Caravan load: " + curUsage.ToStringMass() + " / " + curCapacity.ToStringMass());
+                GUI.color = massColor;
+                Text.Anchor = TextAnchor.MiddleRight;
+                Widgets.Label(massRightRect, "After trade: " + projUsage.ToStringMass() + " / " + projCapacity.ToStringMass()
+                    + " (" + plannedDelta.ToStringMassOffset() + ")" + statusWord);
+                Text.Anchor = prevMassAnchor;
+                Text.Font = prevMassFont;
+                GUI.color = prevMassColor;
+                Text.WordWrap = prevMassWrap;
             }
 
             // end draw footer (replaces original code entirely)
@@ -487,13 +585,16 @@ namespace TradeUI
             public const float ICON_INFO_WIDTH = 80f;   // icon (27) + info button + padding; name starts at x=80
             public const float NAME_MIN_WIDTH = 140f;    // minimum readable space reserved for the label
             public const float BULK_WIDTH = 64f;         // UX-A: "All" + "$" bulk buttons (SP only)
+            public const float WEIGHT_WIDTH = 70f;       // Feature 3: per-item weight column (caravan only)
 
             // Minimum content width a row needs so the right-anchored blocks always have room and the
             // name rect never collapses. extraIconWidth is measured live (see MyDrawTradableRow).
+            // Feature 3: the weight column only exists in caravan trades, so only reserve it then.
             public static float MinRowWidth()
             {
+                float weight = (GetTradeCaravan() != null) ? WEIGHT_WIDTH : 0f;
                 return ICON_INFO_WIDTH + NAME_MIN_WIDTH + OWNED_AMOUNT_WIDTH + COST_WIDTH + TRANSFER_WIDTH + BULK_WIDTH
-                    + TradeUIParameters.maxExtraIconWidth;
+                    + weight + TradeUIParameters.maxExtraIconWidth;
             }
 
             public const float COL_HEADER_HEIGHT = 20f;
@@ -524,6 +625,12 @@ namespace TradeUI
                 DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, COST_WIDTH, rowRect.height), "Price", TextAnchor.MiddleRight);
                 x -= OWNED_AMOUNT_WIDTH;
                 DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, OWNED_AMOUNT_WIDTH, rowRect.height), "Owned", TextAnchor.MiddleRight);
+                // Feature 3: weight column header, caravan trades only (kept in lockstep with the row).
+                if (GetTradeCaravan() != null)
+                {
+                    x -= WEIGHT_WIDTH;
+                    DrawHeaderCell(new Rect(rowRect.x + x, rowRect.y, WEIGHT_WIDTH, rowRect.height), "Weight", TextAnchor.MiddleRight);
+                }
                 DrawHeaderCell(new Rect(rowRect.x + ICON_INFO_WIDTH, rowRect.y, Mathf.Max(0f, x - ICON_INFO_WIDTH), rowRect.height), "Item", TextAnchor.MiddleLeft);
 
                 Text.Anchor = prevAnchor;
@@ -1000,6 +1107,35 @@ namespace TradeUI
                 else
                 {
                     xPosition -= (OWNED_AMOUNT_WIDTH + COST_WIDTH);
+                }
+
+                // Feature 3: per-item weight column (caravan trades only). Inserted here - a point
+                // reached identically by all three row branches (won't-trade / slavery / normal) - so
+                // the no-trade rows stay aligned. Cell shows the STACK mass; tooltip shows UNIT mass.
+                // Gated on the caravan predicate (independent of the SP/MP check) so it matches the
+                // header and MinRowWidth() in both SP and MP caravan trades. Zero-width otherwise.
+                if (GetTradeCaravan() != null)
+                {
+                    xPosition -= WEIGHT_WIDTH;
+                    Rect weightRect = new Rect(xPosition, 0f, WEIGHT_WIDTH, mainRect.height);
+                    if (trad.HasAnyThing)
+                    {
+                        float unitMass = trad.AnyThing.GetStatValue(StatDefOf.Mass);
+                        float stackMass = unitMass * ownedAmount;
+                        if (Mouse.IsOver(weightRect))
+                        {
+                            Widgets.DrawHighlight(weightRect);
+                        }
+                        Text.Anchor = TextAnchor.MiddleRight;
+                        Rect weightLabelRect = weightRect;
+                        weightLabelRect.xMin += 5f;
+                        weightLabelRect.xMax -= 5f;
+                        Widgets.Label(weightLabelRect, stackMass.ToStringMass());
+                        TooltipHandler.TipRegion(weightRect, new TipSignal(
+                            "Item mass: " + unitMass.ToStringMass() + " each\n"
+                            + "Owned stack: " + stackMass.ToStringMass() + "\n"
+                            + "(excludes gear a pawn is carrying)"));
+                    }
                 }
 
                 // draw animal bond/ridability + ideology captive info.
