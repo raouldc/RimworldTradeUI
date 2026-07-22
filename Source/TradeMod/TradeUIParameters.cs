@@ -23,6 +23,10 @@ namespace TradeUI
         // measured live and fed into the minimum row width so extra icons never crowd the name.
         public static float maxExtraIconWidth = 0f;
 
+        // Feature 1: when true, the mod's custom trade rendering bails and RimWorld draws its own
+        // (vanilla) item grid + count widget. Session-local escape hatch (SP + MP), never MP-synced.
+        public static bool useVanillaRendering = false;
+
         public void Reset()
         {
             // UX-E: scroll positions intentionally persist across trade opens. BeginScrollView clamps

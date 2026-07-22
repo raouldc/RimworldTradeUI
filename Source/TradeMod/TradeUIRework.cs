@@ -125,7 +125,7 @@ namespace TradeUI
                 int silverDelta = __instance.cachedCurrencyTradeable.CountToTransfer;
                 bool canAfford = TradeSession.deal.DoesTraderHaveEnoughSilver();
                 float resetLeft = buttonsRect.x - 10f - Dialog_Trade.OtherBottomButtonSize.x;
-                const float totalX = 160f; // leave room for the UX-C filter toggle at the far left
+                const float totalX = 420f; // leave room for the vanilla toggle + filter dropdown at the far left
                 Rect totalRect = new Rect(totalX, buttonsRect.y, Mathf.Max(0f, resetLeft - 10f - totalX), Dialog_Trade.OtherBottomButtonSize.y);
                 TextAnchor prevTotalAnchor = Text.Anchor;
                 Color prevTotalColor = GUI.color;
@@ -250,10 +250,20 @@ namespace TradeUI
                 }
             }
 
-            // "Show" filter dropdown at the far left of the button row. Opens a menu of display
+            // Feature 1: always-visible vanilla-rendering toggle (SP + MP escape hatch). Session-local
+            // display-only state; flipping it makes both drawing prefixes defer to vanilla. No MP sync.
+            Rect vanillaRect = new Rect(0f, buttonsRect.y, 130f, Dialog_Trade.OtherBottomButtonSize.y);
+            if (Widgets.ButtonText(vanillaRect, TradeUIParameters.useVanillaRendering ? "Vanilla UI: on" : "Vanilla UI: off", true, true, true))
+            {
+                TradeUIParameters.useVanillaRendering = !TradeUIParameters.useVanillaRendering;
+                Verse.Sound.SoundStarter.PlayOneShotOnCamera(SoundDefOf.Tick_High, null);
+            }
+            TooltipHandler.TipRegion(vanillaRect, new TipSignal("Switch between this mod's trade layout and RimWorld's built-in trade layout.\nUse this if the modded UI misbehaves (especially in multiplayer)."));
+
+            // "Show" filter dropdown, just right of the vanilla toggle. Opens a menu of display
             // toggles (in-deal only, hide items the trader won't buy). Display-only local state,
             // so it is safe under MP (no deal mutation).
-            Rect filterRect = new Rect(0f, buttonsRect.y, 150f, Dialog_Trade.OtherBottomButtonSize.y);
+            Rect filterRect = new Rect(vanillaRect.xMax + 10f, buttonsRect.y, 150f, Dialog_Trade.OtherBottomButtonSize.y);
             bool inDealOnly = TradeUIParameters.Singleton.filterInDealOnly;
             bool hideUnwilling = TradeUIParameters.Singleton.hideUnwillingToBuy;
             string filterLabel = (inDealOnly || hideUnwilling) ? "Show: filtered" : "Show: all items";
@@ -602,8 +612,85 @@ namespace TradeUI
                 trad.AdjustTo(max >= 0 ? target : -target);
             }
 
+            // Feature 1: minimal header for vanilla-rendering mode. The transpiler deleted vanilla's
+            // own header/name drawing (it lived in DoWindowContents), so bailing to vanilla's
+            // FillMainRect would otherwise yield a nameless, header-less grid. Draw faction/trader
+            // names + aligned column labels, then shrink mainRect from the top so vanilla's unified
+            // row list renders below. Column x-offsets mirror RimWorld.TradeUI.DrawTradeableRow.
+            static void DrawVanillaModeHeader(ref Rect mainRect)
+            {
+                TextAnchor prevAnchor = Text.Anchor;
+                GameFont prevFont = Text.Font;
+                Color prevColor = GUI.color;
+                bool prevWrap = Text.WordWrap;
+
+                const float NAMES_H = 32f;
+                const float COLS_H = 22f;
+                float headerH = NAMES_H + COLS_H;
+                float w = Mathf.Max(0f, mainRect.width - 16f); // leave room for the scrollbar vanilla adds
+
+                // Faction (left) and trader (right) names.
+                Rect namesRect = new Rect(mainRect.x, mainRect.y, w, NAMES_H);
+                Text.Font = GameFont.Medium;
+                Text.WordWrap = false;
+                Text.Anchor = TextAnchor.UpperLeft;
+                Widgets.Label(namesRect, Faction.OfPlayer.Name.Truncate(w / 2f, null));
+                Text.Anchor = TextAnchor.UpperRight;
+                Widgets.Label(namesRect, TradeSession.trader.TraderName.Truncate(w / 2f, null));
+
+                // Aligned column labels (same geometry as DrawTradeableRow: right-anchored trader
+                // columns, centre transfer hint, left-anchored colony columns, item name on the left).
+                Text.Font = GameFont.Tiny;
+                GUI.color = new Color(0.8f, 0.8f, 0.8f);
+                float y = mainRect.y + NAMES_H;
+                DrawVanillaHeaderCell(new Rect(mainRect.x + w - 75f, y, 75f, COLS_H), "Owned", TextAnchor.MiddleRight);
+                DrawVanillaHeaderCell(new Rect(mainRect.x + w - 175f, y, 100f, COLS_H), "Price", TextAnchor.MiddleRight);
+                Rect transferHintRect = new Rect(mainRect.x + w - 415f, y, 240f, COLS_H);
+                if (transferHintRect.x > mainRect.x && !TradeSession.giftMode)
+                {
+                    DrawVanillaHeaderCell(transferHintRect, "PositiveBuysNegativeSells".Translate(), TextAnchor.MiddleCenter);
+                }
+                float colonyPriceX = mainRect.x + w - 515f;
+                if (colonyPriceX > mainRect.x)
+                {
+                    DrawVanillaHeaderCell(new Rect(colonyPriceX, y, 100f, COLS_H), "Price", TextAnchor.MiddleLeft);
+                    DrawVanillaHeaderCell(new Rect(colonyPriceX - 75f, y, 75f, COLS_H), "Owned", TextAnchor.MiddleLeft);
+                }
+                DrawVanillaHeaderCell(new Rect(mainRect.x, y, Mathf.Max(0f, w - 590f), COLS_H), "Item", TextAnchor.MiddleLeft);
+
+                GUI.color = new Color(1f, 1f, 1f, 0.3f);
+                Widgets.DrawLineHorizontal(mainRect.x, mainRect.y + headerH - 1f, w);
+
+                Text.Anchor = prevAnchor;
+                Text.Font = prevFont;
+                GUI.color = prevColor;
+                Text.WordWrap = prevWrap;
+
+                mainRect.yMin += headerH;
+            }
+
+            static void DrawVanillaHeaderCell(Rect rect, string label, TextAnchor anchor)
+            {
+                if (rect.width <= 0f)
+                {
+                    return;
+                }
+                Text.Anchor = anchor;
+                Widgets.Label(rect, label);
+            }
+
             static bool Prefix(ref UnityEngine.Rect mainRect, ref List<Tradeable> ___cachedTradeables, ref Dialog_Trade __instance)
             {
+                // Feature 1: bail to vanilla rendering when the toggle is on. Draw a minimal header
+                // first (vanilla's own header was deleted by the DoWindowContents transpiler) then let
+                // vanilla FillMainRect draw the item grid; the count-widget prefix also bails so the
+                // vanilla << < > >> controls appear.
+                if (TradeUIParameters.useVanillaRendering)
+                {
+                    DrawVanillaModeHeader(ref mainRect);
+                    return true;
+                }
+
                 // Draw headers
                 float halfWidth = mainRect.width / 2f;
                 // Draw left header
@@ -963,7 +1050,10 @@ namespace TradeUI
                     // Previously this guard returned true in MP, so vanilla count-button drawing ran and
                     // overlapped the mod's price column. Detect the MP window too so our custom widget
                     // (which stays inside the reserved TRANSFER_WIDTH rect) draws in MP as well.
-                    if (!Find.WindowStack.IsOpen<Dialog_Trade>() && !MpTradeWindowOpen())
+                    // Feature 1: when vanilla rendering is on, always defer to vanilla's count widget
+                    // (<< < > >>) so the mod's custom arrows/textbox never draw.
+                    if (TradeUIParameters.useVanillaRendering
+                        || (!Find.WindowStack.IsOpen<Dialog_Trade>() && !MpTradeWindowOpen()))
                     {
                         //Log.Message("[TradeUI] Not in a trade UI. Drawing vanilla UI buttons");
                         return true;
